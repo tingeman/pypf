@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 import pathlib2 as pathlib
 import pydatastorage.h5io as h5io
-import pypf.db.boreholes as bh
+#import pypf.db.boreholes as bh
 import pypf.db.zoom_span as zoom_span
 
 
@@ -468,6 +468,38 @@ class Borehole:
 
         self.calc_daily_average()
 
+    def apply_masking_file(self, fname):
+        """Reads and applies masking from a text file.
+        
+        The format of the file is:
+        from_datetime; to_datetime; SensorID 1; SensorID 2; ... SensorID N
+        
+        from_datetime and to_datetime should be timezone aware - currently not tested for other timezones than UTC.
+        datetimes should be followed by a semicolon separated list of SensorIDs to be masked for all 
+        datapoints within the given timerange (endpoints inclusive).
+        """
+        with open(fname, 'r') as f:
+            lines = f.readlines()
+
+        print "Applying masks from file: {0}".format(fname)
+            
+        for line in lines:
+            if line.startswith('#'):
+                continue
+            
+            print line,
+            dat = line.strip().strip(';').split(';')
+            dat = [s.strip() for s in dat]
+            date1 = dat[0]
+            date2 = dat[1]
+            if len(dat) > 2:
+                SensorIDs = [int(s) for s in dat[2:]]
+            ids = (self.rawdata_mask.index >= date1) & (self.rawdata_mask.index <= date2)
+            
+            #bh2 = copy.deepcopy(bh)  
+            self.rawdata_mask.iloc[ids, self.rawdata_mask.columns.get_level_values(0).isin(SensorIDs)] = np.nan
+            self.apply_mask()
+            self.calc_daily_average()
 
     def export(self, fname, delim=', '):
         """
@@ -1500,13 +1532,13 @@ def plot_trumpet(bhole, end_date=None, nyears=1, lim=None, depths=None, annotate
     return (plt.gcf(), maxGT)
 
 
-
-def plot_surf(bhole, depths=None, ignore_mask=False, fullts=False, legend=True,
-              annotations=True, lim=None, figsize=(15, 6),
-              cmap=plt.cm.bwr, sensor_depths=True, cax=None,
-              cont_levels=[0]):
-    ax = bh.plot_surf(bhole, depths=depths, ignore_mask=ignore_mask, fullts=fullts, legend=legend,
-                      annotations=annotations, lim=lim, figsize=figsize,
-                      cmap=cmap, sensor_depths=sensor_depths, cax=cax,
-                      cont_levels=cont_levels)
-    return ax
+# This code refers to the old borhole module... should not be needed now...
+#def plot_surf(bhole, depths=None, ignore_mask=False, fullts=False, legend=True,
+#              annotations=True, lim=None, figsize=(15, 6),
+#              cmap=plt.cm.bwr, sensor_depths=True, cax=None,
+#              cont_levels=[0]):
+#    ax = bh.plot_surf(bhole, depths=depths, ignore_mask=ignore_mask, fullts=fullts, legend=legend,
+#                      annotations=annotations, lim=lim, figsize=figsize,
+#                      cmap=cmap, sensor_depths=sensor_depths, cax=cax,
+#                      cont_levels=cont_levels)
+#    return ax
