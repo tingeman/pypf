@@ -1,1854 +1,1019 @@
-from __future__ import absolute_import
+# Python Version: 2.7
+# mainly due to dependencies on inhouse packages
 
-import os
-import os.path
-import sys
+# Change log
+# - Fixed column sorting of rawdata_mask, to avoid messing up column order when mask is applied
+
+# ToDos
+#
+# Make changes such that we can make changes to latex dataframe output
+# conditionally on a cell basis...
+# We need to prepend '>' to the Dzaa column, if the sigma_Tzaa is larger than say 0.15
+# We need to be able to add a footnote indicator to any cell (conditionally)
+#
+# One option is to make a custom parser to produce a dataframe of strings
+# that can then be written using the to_latex method.
+# Or could make our own complete dataframe to latex parser.
+# (Should be not so difficult)
+#
+
+
 import copy
-# import imp
-import new
-# import getopt
-import warnings
-
 import datetime as dt
-import dateutil
-# import pytz
-
-import numpy as np
-from scipy import stats as scp_stats
-
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import pylab
-
-import pickle
-
+import os
 import pdb
+from collections import OrderedDict
 
-# Own packages/modules
-import pypf.db.ClimateData as ClimateData
-import pypf.db.io as io
-#import pypf.mapping as mapping
+import dateutil
+import matplotlib as mpl
+# mpl.use('WXAgg')
+import matplotlib.pyplot as plt
+import matplotlib.transforms as transforms
+import numpy as np
+import pandas as pd
+import pathlib2 as pathlib
+import pydatastorage.h5io as h5io
+import pypf.db.boreholes as bh
 import pypf.db.zoom_span as zoom_span
 
-from pytimeseries import myts, find_permutation_id
 
-version = 1.4
-
-if sys.platform.find('linux') > -1:
-    basepath = r'/media/Data/Thomas/A-TIN-3/Thomas/Artek/Data/GroundTemp'
-    if not os.path.exists(basepath):
-        raise IOError('Basepath does not exist')
-else:
-    basepath = r'C:\thin\02_Data\GroundTemp'
-    # basepath = 'D:\Thomas\Artek\Data\GroundTemp'
-    if not os.path.exists(basepath):
-        basepath = r'D:/Thomas/A-TIN-3/Thomas/Artek/Data/GroundTemp'
-        if not os.path.exists(basepath):
-            raise IOError('Basepath does not exist')
-
-"""
-Data structure:
-
-borehole : Class
-    name:               String
-    date:               datetime.date / string
-    longitude:          Float
-    latitude:           Float
-    elevation (missing pt.)
-    description:        String
-    loggers:            List, populated with instances of class logger
-
-logger : Class
-    type:               String
-    sn:                 String
-    channels:           Integer
-    depth:              List of floats
-    timeseries:         instance of class myts
-
-myts : Class
-    dt_type:            datetime.datetime or datetime.date type
-    times:              array of type dt_type
-    data:               masked ndarray
+# requires pathlib 2
+# conda install -c anaconda pathlib2
 
 
-Version 1.4:
-- Implemented "time_offset" parameter for borehole data files, to allow off set
-     of the entire time series by a certain number of minutes.
-- Implementing Pickling functionallity of Borehole class.
-- Implementing Pickling functionallity of Logger class. Tested and working!
-
-Version 1.3:
-- Removed mapping functionality from module, and placed it in separate module
-    mapping, which is now imported.
-
-Version 1.2:
-- Transition to MyTimeseries_v1p2, myts.times is an array of datetime or time objects,
-    myts.ordinals is an array of floats, obtained through mpl.dates.date2num
-
-Version 1.1:
-- Transition to MyTimeseries_v1p1, myts.times is an array of ordinals, obtained
-    through mpl.dates.date2num
-- Never finished, it turned out we need both datetimes and ordinals.
-
-Version 1.0:
-- Implementation based on MyTimeseries_v1p0, where myts.times is an array of
-    datetime.datetime objects.
+def ensure_paths_exist(paths):
+    if isinstance(paths, str):
+        paths = [paths]
+    for path in paths:
+        if not os.path.exists(path):
+            os.mkdir(path)
 
 
-To do:
-OK Allow for calibration values
-OK Per default calculate daily time-series and store in borehole class
-OK Method to calculate MAGT (MAGST will be the upper-most point)
-OK Adapt plot_trumpet to use daily timeseries per default with option to use original data
--- Save/Load data to/from HDF5 file using PyTables
-
-
-
-Annotation of plots:
-t1 = annotate('MxGT', xy=(2, 0.25), xytext=(4.5, 0.4), arrowprops=dict(width=0.25,facecolor='black', shrink=0.2, headwidth=6))
-t2 = annotate('MnGT', xy=(-12, 1.0), xytext=(-18, 1.25), arrowprops=dict(width=0.25,facecolor='black', shrink=0.2, headwidth=6))
-t3 = annotate('MAGT', xy=(-4.5, 0.5), xytext=(-11, 0.65), arrowprops=dict(width=0.25,facecolor='black', shrink=0.2, headwidth=6))
-
-To remove annotation use e.g. t1.remove()
-
-
-"""
-
-
-def get_property_info(fname=None, text=None, sep=',', rstrip=None):
+def float_eq(alike, val, atol=1e-8, rtol=1e-5):
+    """makes a float comparison allowing for round off errors to within the
+    speciefied absolute and relative tolerances
     """
-    This function reads the first 1500 characters of a file and parses the info
-    in "key: value" pairs.
-
-    Lines beginning with # are skipped
-    Blank lines are skipped
-
-    The file data section is interpreted to begin when:
-    '#--' the following line will be the first data line
-    If there is no key:value pair separated by ':'
-    If the key contains a separator (sep) (may occur when times are given in second column)
-    If the trimmed key contains a space (may occur when times/dates are given in first column)
-
-    Any characters found after a '#' following a key:value pair are treated as comments
-
-    The function returns:
-    items:     Dictionary of key:value pairs
-    comments:  Dictionary of key:comment pairs
-    nl:        line number of first data line
+    return np.abs(np.array(alike) - val) <= (atol + rtol * np.abs(val))
 
 
-    Consider extending functionality to allow reading of more than 1500 chars,
-    possibly in a sequential manner (read first 1500 chars, if data section is
-    not found, read another 1500 chars etc.). This will allow for longer comments
-    in the header section.
-
-
+def find(condition):
     """
+    Remake of mpl.mlab.find to also work with masked arrays.
+    It will not take masked elements into account.
+    For normal np.ndarray the function works like mpl.mlab.find.
+    """
+    np.array(condition)
+    res, = np.nonzero(np.ma.ravel(condition > 0))
+    return res
 
-    fh = None
 
-    if fname is not None:
-        fh = open(fname, 'r')
-        lines = fh.readlines(1500)
-    elif text is not None:
-        if type(text) not in [list, tuple]:
-            lines = [text]
-        else:
-            lines = text
+def get_indices(alike1, alike2, float_comp=True, atol=1e-8, rtol=1e-5):
+    """Finds the indices of the values in alike2 as they occur in alike1.
+    If a value from alike2 does not occur in alike1, the index will be a np.NaN
+    value.
+    """
+    idx = [np.NaN for a in alike2]
+
+    if float_comp:
+        for idv, val in enumerate(alike2):
+            id = np.nonzero(float_eq(alike1, val, atol, rtol))[0]
+            if len(id) > 0:
+                idx[idv] = id[0]
+
+        return idx
+
+        # return [float_eq(alike1, val, atol, rtol) for val in alike2]
     else:
-        raise ValueError("Nothing to parse!")
+        raise NotImplementedError
 
-    items = dict()
-    comments = dict()
-    nl = 0
-    found_data = False
 
-    for ix, l in enumerate(lines):
-        l = l.rstrip().rstrip(rstrip)  # rstrip for spaces and any other specified character
+def nyears2lim(end_date=None, nyears=1):
+    # check date format, do necessary conversion to datetime.date object
+    if end_date is None:
+        return False
 
-        if l.startswith('#--'):
-            # here we found the indicator for beginning of data section
-            nl = ix + 1
-            found_data = True
-            break
+    if type(end_date) in [int, float, np.float32, np.float64]:
+        raise NotImplementedError('Int and float type date serials are not implemented')
+        # end_date = mpl.dates.num2date(end_date).date()
+    elif type(end_date) == str:
+        end_date = dateutil.parser.parse(end_date, yearfirst=True, dayfirst=True).date()
+    elif type(end_date) in [dt.datetime]:
+        end_date = end_date.date()
+    elif type(end_date) != dt.date:
+        raise ValueError('dates should be either ordinals, date or datetime objects')
 
-        if (l.startswith('#')) or (len(l) == 0):
-            # This is an empty or a comment line, which we will skip
-            continue
+    start = copy.copy(end_date).replace(year=end_date.year - nyears)
+    start = start + dt.timedelta(days=1)
 
-        # split line in key and value
-        tmp = l.split(':', 1)
-        if not len(tmp) == 2:
-            # There is no key value pair, thus we have reached beginning of data section
-            nl = ix
-            found_data = True
-            break
+    return [start, end_date]
 
-        key = tmp[0].lstrip().rstrip().lower()
-        value = tmp[1].lstrip().rstrip()
 
-        if key.find(sep) != -1:
-            # token before a possible ':' contains a sep
-            # thus it must be a data line
-            nl = ix
-            found_data = True
-            break
-        elif key.find(' ') != -1:
-            # token before a possible ':' contains a ' '
-            # not counting leading and trailing spaces
-            # thus it must be a data line
-            nl = ix
-            found_data = True
-            break
+def fix_lim(lim):
+    if lim is None:
+        return
+
+    newlist = []
+    for lid, thistime in enumerate(lim):
+        if type(thistime) == str:
+            newlist.append(dateutil.parser.parse(thistime, yearfirst=True, dayfirst=False).date())
+        elif type(thistime) in [dt.datetime, dt.date]:
+            newlist.append(thistime)
         else:
-            # We have a key-value pair!
-
-            # parse any comment
-            tmp = value.split('#', 1)
-            value = tmp[0].rstrip().lstrip()
-            if len(tmp) == 2:
-                comment = tmp[1].rstrip().lstrip()
-            else:
-                comment = ''
-            items[key] = value
-            comments[key] = comment
-
-    if found_data == False:
-        if fh is not None and fh.readline() != '':
-            fh.close()
-            raise ValueError("File parsing did not encounter data section")
-
-    if fh is not None:
-        fh.close()
-
-    return items, comments, nl
+            raise TypeError('Date ranges must be specified as strings or datetime or date objects.')
+    return newlist
 
 
-def GTload(fname, sep=',', paramsd=None, hlines=None):
-    """
-    GTload(fname, sep=',', paramsd=None, hlines=None)
+def find_zero(xi, yi, exclude_zeros=True):
+    # Finds zero crossings in the xi elements (e.g. ground temperature) and interpolates
+    # the depth of the zero crossing based on the distances in yi.
+    #
+    # The standard use of np.sign will also identify zeros as a sign change, so
+    # if a node is exactly 0.000 (which could happen e.g. during freezing
+    # there would be two immediately successive crossings.
+    #
+    # Using the flag exclude_zeros=True will exclude these double indices.
+    # [1, 0, -1, 0, -1, 1]  ->   id = [0, 4]
+    # [-1, 0, 1, 0, 1, -1]  ->   id = [1, 2, 3, 4]
+    # ...such that interpolation can be done from nodes id to id+1
+    # There may be still some issues with [1, 0, 1] type situations, which may have to be handled.
 
-    Function to load ground temperature data file.
+    if exclude_zeros:
+        # This code will check for xi elements equal zero, and
+        mydiff = np.diff(np.sign(xi))
 
-    Recognized key words (case insensitive in file as they are converted
-    to lower-case during file reading and parsing in get_property_info()):
+        for id, d in enumerate(mydiff):
+            if (xi[id] == 0) & (xi[id + 1] < 0):
+                mydiff[id] = 0
+            elif (xi[id] < 0) & (xi[id + 1] == 0):
+                mydiff[id] = 0
 
-    separator:      Defines the column separator
-    decimal:        Defines the decimal separator
-    flagcol:        Defines column number for flags for data masking
-                        (default is last column)
-    depth:          Defines the depth of each sensor (list of floats)
-                        this value is used to determine the number of data columns
-    calibration:    Optional. Defines calibration values (list is only parsed
-                        in this function, not applied)
-    type:           Data logger type, determines how file is read
-    format:         Only used for type "generic"
-                      dt_date_meas: datetime, date, measurements. Datetimes are
-                          stored, date column is ignored, and measurements are
-                          stored.
-                      dt_date_time_meas: datetime, date, time, measurements.
-                          Datetimes are stored, date and time columns are
-                          ignored, and measurements are stored.
-                      date_meas: date, measurements. They are both stored.
+        idx3 = np.where(mydiff != 0)[0]
 
-    tzinfo:         Timezone info (default is +0000 UTC)
-    time_offset:    Optional. Provides a possibility to apply an offset to the
-                        times listed in the file. This is relevant when the clock
-                        in the computer used to launch the device has not been
-                        set correctly at time of launch.
-                        NB: Should be specified in MINUTES.
-
-    These keywords are parsed and/or used in this function. 'separator','decimal'
-    and 'flagcol' are removed from the parameter dictionary, everything else is
-    returned in the paramsd output variable.
-
-
-    Data logger types recognized:
-
-    tinytag         data#, times, data colums (1 or 2), flag column (optional)
-    hobo u12-008    data#, times, data colums (4), Hobo event columns, flag column (optional)
-    hobo u23-003    data#, times, data colums (2), Hobo event columns, flag column (optional)
-    generic:        times, data colums, flag column (optional)
-
-
-    Returns:
-
-    data:           masked array (not calibrated)
-    times:          array of datetime objects, parsed using the info from tzinfo
-    flags:          array of strings from flag column
-    paramsd:        dictionary of key:value pairs, some of them parsed by this function
-                        (lists in 'depth' and 'calibration' parsed to list of floats)
-    """
-
-    def change_decimal_sep(data_array, decsep):
-        """
-        Removes any periods (.) in strings in array then replace original
-        decimal points (decsep) with periods.
-        """
-        for index, arrstr in np.ndenumerate(data_array):
-            # Remove any periods in string
-            # Replace original decimal separators with periods
-            data_array[index[0], index[1]] = arrstr.replace('.', '').replace(decsep, '.')
-
-        return data_array
-
-    def convert_to_float(data_array, mask_value=-9999., missing=['', '---', 'None']):
-        """
-        Convert an array of strings to a masked array of floats
-        Treat empty strings, '---' and 'None' as missing values
-        """
-
-        data = np.ma.zeros(data_array.shape)
-        mask = np.ma.getmaskarray(data)
-
-        for index, arrstr in np.ndenumerate(data_array):
-            arrstr = arrstr.strip().lstrip()
-            if arrstr not in missing:
-                data[index[0], index[1]] = float(arrstr)
-            else:
-                data[index[0], index[1]] = mask_value
-                mask[index[0], index[1]] = True
-
-        data.mask = mask
-
-        return data
-
-    # Method starts here
-
-    if (paramsd is None) and (hlines is None):
-        paramsd, comments, hlines = get_property_info(fname=fname, sep=sep)
-
-    # if paramsd has an entry that defines the list separator...
-    sep = paramsd.pop('separator', sep)
-    if sep == '\\t':
-        sep = '\t'
-
-    # if paramsd has an entry that defines the decimal separator...
-    dec_sep = paramsd.pop('decimal', '.')
-
-    file = io.dlmread(fname, sep=sep, hlines=hlines, dt=str)
-
-    flags = None
-    # get column number of flag column, if it is given in parameters
-    # otherwise use last column of dataset.
-    flagcol = paramsd.pop('flagcol', file.ncol - 1)
-    try:
-        flagcol = int(flagcol)
-        if (flagcol > file.ncol - 1) or (flagcol < 0):
-            # if out of bounds... assume no flags
-            # pdb.set_trace()
-            flagcol = None
-
-    except:
-        # pdb.set_trace()
-        flagcol = None
-
-    # if 'channels' in paramsd:
-    #    datadim = float(paramsd['channels'])
-    if 'depth' in paramsd:
-        if type(paramsd['depth']) == str:
-            paramsd['depth'] = map(float, paramsd['depth'].split(','))
-        datadim = len(paramsd['depth'])
     else:
-        raise 'No depth information in header! (' + fname + ')'
+        idx3 = np.where(np.diff(np.sign(xi)) != 0)[0] + 1
+        # In this call a change from positive to zero is also counted as a sign change!
+        # this version is not very useful for ALT estimation...
 
-    if 'calibration' in paramsd:
-        if type(paramsd['calibration']) == str:
-            try:
-                paramsd['calibration'] = map(float, paramsd['calibration'].split(','))
-            except:
-                raise 'Could not parse calibration information! (' + fname + ')'
-        if datadim != len(paramsd['calibration']):
-            raise 'Calibration information does not match number of data columns! (' + fname + ')'
+    ys = []
+    for ix in idx3:
+        y0 = (yi[ix] * (xi[ix+1] - 0) + yi[ix+1] * (0 - xi[ix])) / (xi[ix+1] - xi[ix])
+        ys.append(y0)
 
-    datetype = False
+    return ys
 
-    if 'type' in paramsd:
-        logtype = paramsd['type'].lower()
-        logformat = paramsd.get('format', None)
-        if logformat is not None: logformat = logformat.lower()
 
-        if logtype.find('tinytag') != -1:
-            times = file.data[:, 1]
-            # data  = map(float, file.data[:,2])
 
-            if dec_sep != '.':
-                # the file uses wrong decimal point format, do the conversion
-                file.data[:, 2:2 + datadim] = change_decimal_sep(file.data[:, 2:2 + datadim], dec_sep)
+# selecting a certain SensorID, e.g. SensorID=0: bh.rawdata.xs(0, level='SensorID', axis=1)
 
-            try:
-                data = np.array(file.data[:, 2:2 + datadim], dtype=float)
-            except:
-                data = convert_to_float(file.data[:, 2:2 + datadim])
 
-            if file.ncol > datadim + 2 and (flagcol is not None):
-                flags = file.data[:, flagcol]
+class Borehole:
+    def __init__(self, name=None,
+                 h5path=None, h5dataset='GroundTemperature',
+                 calpath=None):
 
-        elif logtype.find('hobo') != -1:
-            times = file.data[:, 1]
-            if paramsd['type'].lower().find('u12-008') != -1:
-                if dec_sep != '.':
-                    # the file uses wrong decimal point format, do the conversion
-                    file.data[:, 2:2 + datadim] = change_decimal_sep(file.data[:, 2:2 + datadim], dec_sep)
+        self.name = name
+        self.date = None
+        self.latitude = None
+        self.longitude = None
+        self.crs = None
+        self.description = None
 
-                data = convert_to_float(file.data[:, 2:2 + datadim])
+        self.rawdata = None
+        self.rawdata_mask = None
+        self.daily_ts = None
+        self.caldata = None
+        self.calibrated = False
 
-                if (file.ncol > datadim + 2) and (flagcol is not None):
-                    flags = file.data[:, flagcol]
+        self.h5path = None
+        self.h5dataset = h5dataset
+        self.calpath = None
 
-            elif paramsd['type'].lower().find('u23-003') != -1:
-                if dec_sep != '.':
-                    # the file uses wrong decimal point format, do the conversion
-                    file.data[:, 2:2 + datadim] = change_decimal_sep(file.data[:, 2:2 + datadim], dec_sep)
+        if calpath is not None:
+            self.calpath = pathlib.Path(calpath)
+            self.load_calibration_data()
 
-                data = convert_to_float(file.data[:, 2:2 + datadim])
+        if h5path is not None:
+            self.h5path = pathlib.Path(h5path)
+            self.load_h5_borehole()
+            self.calibrate()
+            self.calc_daily_average()
 
-                if (file.ncol > datadim + 4) and (flagcol is not None):
-                    flags = file.data[:, flagcol]
-        elif logtype.find('generic') != -1:
 
-            if logformat == 'dt_date_time_meas':
-                times = file.data[:, 0]
-                datacol = 3
-            elif logformat == 'dt_date_meas':
-                times = file.data[:, 0]
-                datacol = 2
-            elif logformat == 'date_meas':
-                times = file.data[:, 0]
-                datacol = 1
-                datetype = True
-            else:  # if logformat is None     or anything else!
-                times = file.data[:, 0]
-                datacol = 1
 
-            if dec_sep != '.':
-                # the file uses wrong decimal point format, do the conversion
-                file.data[:, datacol:datacol + datadim] = change_decimal_sep(file.data[:, datacol:datacol + datadim],
-                                                                             dec_sep)
-
-            try:
-                data = np.array(file.data[:, datacol:datacol + datadim], dtype=float)
-            except:
-                data = convert_to_float(file.data[:, datacol:datacol + datadim])
-
-            if file.ncol >= datacol + datadim and (flagcol is not None):
-                flags = file.data[:, flagcol]
-        else:
-            print "Type not implemented yet!"
-            raise
-
-        if not 'tzinfo' in paramsd:
-            paramsd['tzinfo'] = '+0000'
-        elif paramsd['tzinfo'].lower() == 'none':
-            paramsd['tzinfo'] = ''
-
-        if datetype:
-            # the data set contains only dates
-            try:
-                times = np.array([dateutil.parser.parse(t, yearfirst=True, dayfirst=True).date() for t in times])
-            except:
-                print "!!!! Problems parsing times from input file... starting debugger."
-                pdb.set_trace()
-        else:
-            # the dataset contains dates and times
-            try:
-                times = np.array(
-                    [dateutil.parser.parse(t + ' ' + paramsd['tzinfo'], yearfirst=True, dayfirst=True) for t in times])
-            except:
-                print "!!!! Problems parsing times from input file... starting debugger."
-                pdb.set_trace()
-
-        if 'time_offset' in paramsd:
-            print "*" * 15
-            print "A time off set is applied to the data...!"
-            print "*" * 15
-            times = times + dt.timedelta(seconds=np.float(paramsd.pop('time_offset')) * 60)
-
-        return (data, times, flags, paramsd)
-    else:
-        raise 'Type of datafile cannot be determined... add type information to header'
-
-
-class logger:
-    def __init__(self, type=None, sn=None, channels=1, fname=None, data=None, times=None, sep=',', **kwargs):
-        self.type = type
-        self.sn = sn
-        self.channels = channels
-        self.calibrated = None
-        self.calibration = None
-        self.timeseries = None
-        if fname not in [None]:
-            # try:
-            self.append(fname=fname, mtype='none')
-            return
-            # except:
-            #     print "Failed to read file: ", fname
-        else:
-            pass
-
-        if (data is not None) and (times is not None):
-            self.timeseries = myts(data, times)
-
-    def __getstate__(self):
-        """
-        Creates a dictionary of logger variables. Timeseries object is
-        converted to a dictionary available for pickling.
-        """
-        odict = copy.deepcopy(self.__dict__)  # copy the dict since we change it
-        # Get timeseries instance as dictionary
-        odict['timeseries'] = self.timeseries.__getstate__()
-        return odict
-
-    def __setstate__(self, sdict):
-        """
-        Updates instance variables from dictionary. If dictionary has key
-        "timeseries" and
-        converted to a dictionary available for pickling.
-        """
-        timeseries = sdict.pop('timeseries', None)
-        self.__dict__.update(sdict)  # update attributes
-
-        if timeseries is not None and type(timeseries) == dict:
-            if not self.__dict__.has_key('timeseries') or self.timeseries is None:
-                # create new instance of timeseries
-                self.timeseries = myts(None, None)
-            # update timeseries instance with dictionary data
-            self.timeseries.__setstate__(timeseries)
-
-    def pickle(self, fullfile_noext):
-        """
-        Pickle logger instance to the specified file.
-        filename will have the extension .pkl appended.
-        """
-
-        if type(fullfile_noext) in [list, tuple]:
-            # Concatenate path elements
-            fullfile_noext = os.path.join(*fullfile_noext)
-
-        with open(fullfile_noext + '.pkl', 'wb') as pklfh:
-            # Pickle dictionary using highest protocol.
-            pickle.dump(self, pklfh, -1)
-
-    def append(self, data=None, times=None, mask=None, flags=None, paramsd=None,
-               hlines=None, fname=None, mtype='oldest'):
-        """
-        Append data from file, or data passed to the method, to the logger instance.
-
-        Recognized key words (case insensitive in file as they are converted
-        to lower-case during file reading and parsing in get_property_info()):
-
-        calibration:    measured data + calibration = true data
-        type:           Data logger type
-        sn:             Logger serial number
-        depth:          Defines the depth of each sensor (list of floats)
-
-
-        tzinfo:         Timezone info (default is UTC)
-
-        These keywords are parsed and/or used in this function. 'separator','decimal'
-        and 'flagcol' are removed from the parameter dictionary, everything else is
-        returned in the paramsd output variable.
-        """
-
-        # if filename is passed, get information from file
-        if fname is not None:
-            data, times, flags, paramsd = GTload(fname=fname, paramsd=paramsd, hlines=hlines)
-
-        # prepare mask array if none is passed
-        datamask = np.ma.getmaskarray(data)
-        if (mask is None) or (mask.shape != data.shape):
-            mask = np.zeros(data.shape, dtype=bool)
-
-        mask = np.logical_or(mask, datamask)
-
-        # get calibration parameters
-        self.calibration = paramsd.pop('calibration', None)
-        calibrated = False
-
-        # calibrate data
-        if self.calibration is not None and self.calibrated != False:
-            if len(self.calibration) != data.shape[1]:
-                raise "Calibration information does not match number of data columns!"
-
-            for id, cal in enumerate(self.calibration):
-                data[:, id] = data[:, id] + cal
-
-            calibrated = True
-
-        # Parse flags
-        # Presently only two types of masking is implemented
-        # 'm' masks the entire row of data at a certain present time step.
-        # 'm[0,1,2]' masks column 0,1 and 2 at a certain present time step.
-
-        ncols = data.shape[1]
-        if type(flags) in [list, tuple, np.array, np.ma.core.MaskedArray]:
-            for id, f in enumerate(flags):
-                f = f.lstrip().rstrip().lower()
-                if f == '':
-                    continue
-                elif f == 'm':
-                    mask[id, :] = True
-                elif f[0] == 'm':
-                    colid = map(int, [s.rstrip().lstrip() for s in f[1:].rstrip(' ]').lstrip(' [').split(',')])
-                    if colid not in [[], None]:
-                        mask[id, colid] = True
-
-        # Merge the data to the logger
-        if mtype == 'none' or not isinstance(self.timeseries, myts):
-            # if the logger contains no data or we chose to
-            # overwrite everything (mtype='none')
-            self.timeseries = myts(data, times, mask)
-            if type(paramsd) == dict:
-                try:
-                    self.type = paramsd.pop('type')
-                    self.sn = paramsd.pop('sn')
-                    self.depth = paramsd.pop('depth')
-                except:
-                    raise "Logger parameters missing from file."
-
-                # handle remaining parameters
-                for k, v in paramsd.items():
-                    if k in ['timeseries']:
-                        # do not overwrite the timeseries atribute!
-                        continue
-
-                    if k in self.__dict__:
-                        self.__dict__[k] = v
-                    else:
-                        print "Parameter ", k, " not recognized!"
-            else:
-                raise "No header data in file, aborting!"
-        elif mtype in ['oldest', 'youngest', 'mean']:
-            # otherwise chose the correct method of merging.
-            if type(paramsd) == dict:
-                if (self.type == paramsd['type']) and \
-                        (self.sn == paramsd['sn']):
-
-                    if self.depth != paramsd['depth']:
-                        # find and apply the correct permutation of the data file columns
-                        id = find_permutation_id(self.depth, paramsd['depth'])
-                        if id is None:
-                            raise "Data file depth info does not match existing logger info. Aborting!"
-                        else:
-                            data = data[:, id]
-                            mask = mask[:, id]
-
-                    self.timeseries.merge(myts(data, times, mask), mtype='oldest')
-                else:
-                    raise "Header info does not match current logger. Aborting!"
-        self.calibrated = calibrated
-
-    def get_mean_GT(self, lim=None, ignore_mask=False):
-        if ignore_mask:
-            orig_mask = self.timeseries.data.mask.copy()
-            self.timeseries.data.mask = np.zeros_like(orig_mask)
-            self.timeseries.data = np.ma.masked_where(self.timeseries.data < -273.15,
-                                                      self.timeseries.data,
-                                                      copy=False)
-
-        # Get mean of timeseries
-        tsmean = self.timeseries.mean(lim)
-        tsstd = self.timeseries.std(lim)
-
-        if ignore_mask:
-            self.timeseries.data.mask = orig_mask
-
-        dtype = [('depth', float), ('value', float), ('std', float)]
-        meanGT = np.array(tsmean, dtype=dtype)
-
-        # insert depths in first column
-        meanGT['depth'] = np.atleast_2d(np.array(self.depth)).T
-        meanGT['std'] = np.atleast_2d(tsstd['value'])
-
-        return meanGT
-
-    def get_max_GT(self, lim=None, ignore_mask=False):
-        if ignore_mask:
-            orig_mask = self.timeseries.data.mask.copy()
-            self.timeseries.data.mask = np.zeros_like(orig_mask)
-            self.timeseries.data = np.ma.masked_where(self.timeseries.data < -273.15,
-                                                      self.timeseries.data,
-                                                      copy=False)
-
-        # Get max of timeseries
-        tsmax = self.timeseries.max(lim)
-
-        if ignore_mask:
-            self.timeseries.data.mask = orig_mask
-
-        dtype = [('depth', float), ('value', float), ('time', type(tsmax['time']))]
-        maxGT = np.array(tsmax, dtype=dtype)
-
-        # insert depths in first column
-        maxGT['depth'] = np.array(self.depth)
-
-        return maxGT
-
-    def get_min_GT(self, lim=None, ignore_mask=False):
-        if ignore_mask:
-            orig_mask = self.timeseries.data.mask.copy()
-            self.timeseries.data.mask = np.zeros_like(orig_mask)
-            self.timeseries.data = np.ma.masked_where(self.timeseries.data < -273.15,
-                                                      self.timeseries.data,
-                                                      copy=False)
-
-        # Get min of timeseries
-        tsmin = self.timeseries.min(lim)
-
-        if ignore_mask:
-            self.timeseries.data.mask = orig_mask
-
-        dtype = [('depth', float), ('value', float), ('time', type(tsmin['time']))]
-        minGT = np.array(tsmin, dtype=dtype)
-
-        # insert depths in first column
-        minGT['depth'] = np.array(self.depth)
-        return minGT
+    def load_calibration_data(self, calpath=None):
+        """Loads calibration data for each sensor"""
+        if calpath is not None:
+            self.caldata = pd.read_csv(calpath, skipinitialspace=True, sep=';', comment='#')
+        elif self.calpath is not None:
+            self.caldata = pd.read_csv(self.calpath, skipinitialspace=True, sep=';', comment='#')
 
     def calibrate(self):
+        """Applies calibration data to borehole measurements"""
         if self.calibrated:
             return
 
-        for id, cal in enumerate(self.calibration):
-            self.timeseries.data[:, id] = self.timeseries.data[:, id] + cal
+        if self.caldata is None:
+            # TODO: Implement warning system!
+            # raise ValueError('Calibration data not loaded - can''t calibrate...!')
+            return
+
+        # Procedure:
+        # 1. Loop over all columns in data frame
+        # 2.     Find row in caldata that matches SensorID and CoordZ and possibly data type
+        # TODO: When available, also check Instrument serial
+        # 3.     Apply cal value to all data points
+        # 4. If cal-value is not available, warn? or fail?
+
+        for cid in xrange(len(self.rawdata.columns)):
+            od = OrderedDict(zip(self.rawdata.columns.names, self.rawdata.columns[cid]))
+            # calid = (self.caldata['Channel']==od['SensorID']) & \
+            #         (self.caldata['Depth']==od['CoordZ'])
+            calid = (self.caldata['SensorID'] == od['SensorID'])
+
+            # TODO: Consider adding a data type to cal-data.
+
+            if sum(calid) == 1:
+                self.rawdata.iloc[:,cid]  += self.caldata[calid]['dT'].values[0]
+            elif (sum(calid) == 0) and (od['CoordZ'] <= 0):
+                # sensor above ground, we don't care that it is not calibrated
+                pass
+                # TODO: Implement calibration possibility for all sensors
+            else:
+                # if this is a ground channel and it has no calibration
+                # or if there are more cal values matching
+                # ... raise error!
+                raise ValueError('Problem with matching calibration data to instrument channels!')
 
         self.calibrated = True
+        self.calc_daily_average()
+
 
     def uncalibrate(self):
+        """Removes calibration from calibrated borehole measurements"""
         if not self.calibrated:
             return
 
-        for id, cal in enumerate(self.calibration):
-            self.timeseries.data[:, id] = self.timeseries.data[:, id] - cal
+        # Procedure:
+        # 1. Loop over all columns in data frame
+        # 2.     Find row in caldata that matches SensorID and CoordZ and possibly data type
+        # TODO: When available, also check Instrument serial
+        # 3.     Remove cal value to all data points
+        # 4. If cal-value is not available, warn? or fail?
+
+        for cid in xrange(len(self.rawdata.columns)):
+            od = OrderedDict(zip(self.rawdata.columns.names, self.rawdata.columns[cid]))
+            #calid = (self.caldata['Channel']==od['SensorID']) & \
+            #        (self.caldata['Depth']==od['CoordZ'])
+            calid = (self.caldata['Channel'] == od['SensorID'])
+
+            # TODO: Consider adding a data type to cal-data.
+
+            if sum(calid) == 1:
+                self.rawdata.iloc[:,cid]  -= self.caldata[calid]['dT'].values[0]
+            elif (sum(calid) == 0) and (od['CoordZ'] <= 0):
+                # sensor above ground, we don't care that it is not calibrated
+                pass
+            else:
+                # if this is a ground channel and it has no calibration
+                # or if there are more cal values matching
+                # ... raise error!
+                raise ValueError('Problem with matching calibration data to instrument channels!')
 
         self.calibrated = False
+        self.calc_daily_average()
 
-    def drop_channels(self, channels=None):
-        if channels is None:
+    def apply_mask(self):
+        """Applies masking of the data, by adding the self.rawdata_mask dataframe to the
+        self.rawdata dataframe, which will propagate the NaN of the mask to the rawdata.
+        Currently this function is irreversible. To get original data back, you have to
+        re-read the data from disk."""
+
+        # Make sure all indices from self.rawdata are available in the mask
+        # If not available, introduce with value 0.0, so they don't
+        # affect original values when we apply the mask to the data.
+        mask = self.rawdata_mask.reindex(self.rawdata.index, fill_value=0.)
+
+        # We add zero to the mask, to convert bool values to floats...
+        self.rawdata = self.rawdata+(mask+0)
+        
+    def load_h5_borehole(self, calc_daily_avg=True):
+        # def read_borehole(datfile, calfile=None, dataset_name='GroundTemperature'):
+
+        # open the data file
+        datafile = h5io.DataStore(str(self.h5path.absolute()))
+
+        # get the borehole name
+        self.name = self.h5path.stem
+
+        # TODO: get the borehole name from the h5 file, requires implementation in pydatastorage
+
+        # read all stored data (use read_where to get part of the data)
+        DataSet = datafile.DataSets.__dict__[self.h5dataset]
+        data = DataSet.Measurement.node.read()
+        sensor = DataSet.Sensor.node.read()
+        datatype = datafile.DataType.node.read()
+        logger_serial = 'Not defined'
+
+        # Convert to a pandas DataFrames
+        df = pd.DataFrame(data)
+        dfdt = pd.DataFrame(datatype)
+        dfsensor = pd.DataFrame(sensor)
+
+        # Make the time stamp human readable
+        df['TimeStamp'] = DataSet.get_time(list(df['TimeStamp']))
+        datafile.close()
+
+        # Now reorganize data in standard table format
+        pvdf = pd.pivot_table(df, index='TimeStamp', columns=['SensorID', 'DataTypeID'], values=['Value'])
+
+        # And get the masks of the data
+        pvdf_mask = pd.pivot_table(df, index='TimeStamp', columns=['SensorID', 'DataTypeID'], values=['Masked'])
+
+        # We want the multiindex to have the following levels:
+        # 0.  SensorID
+        # 1.  SensorName
+        # 2.  SensorType
+        # 3.  DataType
+        # 4.  DataUnit
+        # 5.  CoordZ
+
+        # To begin with, we have:
+        # 0.  Value
+        # 1.  SensorID
+        # 2.  DataTypeID
+
+        # Drop the unwanted level 0
+        pvdf.columns = pvdf.columns.droplevel(0)
+        pvdf_mask.columns = pvdf_mask.columns.droplevel(0)
+
+        # Now we have:
+        # 0.  SensorID
+        # 1.  DataTypeID
+
+        # Prepare for modificaion of column multiindex
+        clevels = list(pvdf.columns.levels)
+        clabels = list(pvdf.columns.codes)
+        cnames = list(pvdf.columns.names)
+
+        # Add SensorName
+        sensor_names = [dfsensor[dfsensor['SensorID'] == x]['SensorName'].values[0] for x in clevels[0]]
+        sensor_name_list = list(np.unique(sensor_names))
+        # Insert the SensorType information as level 2
+        clevels.insert(1, sensor_name_list)
+        clabels.insert(1, [sensor_name_list.index(st) for st in sensor_names])
+        cnames.insert(1, 'SensorName')
+
+        # Now we have:
+        # 0.  SensorID
+        # 1.  SensorName
+        # 2.  DataTypeID
+
+        # Add SensorType
+        sensor_types = [dfsensor[dfsensor['SensorID'] == x]['SensorType'].values[0] for x in clevels[0]]
+        sensor_type_list = list(np.unique(sensor_types))
+        # Insert the SensorType information as level 2
+        clevels.insert(2, sensor_type_list)
+        clabels.insert(2, [sensor_type_list.index(st) for st in sensor_types])
+        cnames.insert(2, 'SensorType')
+
+        # Now we have:
+        # 0.  SensorID
+        # 1.  SensorName
+        # 2.  SensorType
+        # 3.  DataTypeID
+
+        # Append DataUnit
+        clevels.append([dfdt['Unit'][dfdt['DataTypeID'] == x].values[0] for x in clevels[3]])
+        clabels.append(clabels[3])    # We use same codes as for DataTypeID, which is now index 2, after insertion of SensorType data
+        cnames.append('DataUnit')
+
+        # Now we have:
+        # 0.  SensorID
+        # 1.  SensorName
+        # 2.  SensorType
+        # 3.  DataTypeID
+        # 4.  DataUnit
+
+        # Append Sensor depth as new level at end of multiindex
+        sensor_depths = [dfsensor[dfsensor['SensorID'] == x]['CoordZ'].values[0] for x in clevels[0]]
+        sensor_depth_list = list(np.unique(sensor_depths))
+        clevels.append(sensor_depth_list)
+        clabels.append([sensor_depth_list.index(sd) for sd in sensor_depths])
+        cnames.append('CoordZ')
+
+        # Now we have:
+        # 0.  SensorID
+        # 1.  SensorName
+        # 2.  SensorType
+        # 3.  DataTypeID
+        # 4.  DataUnit
+        # 5.  CoordZ
+
+        # Finally insert datatype names, instead of the the DataTypeIDs
+        # This means updating level 2 (of the original multiindex)
+        clevels[3] = [dfdt['Name'][dfdt['DataTypeID'] == x].values[0] for x in clevels[3]]
+        cnames[3] = 'DataType'
+
+        # Now we have:
+        # 0.  SensorID
+        # 1.  SensorName
+        # 2.  SensorType
+        # 3.  DataType
+        # 4.  DataUnit
+        # 5.  CoordZ
+
+        # Now create the multiindex
+        mi = pd.MultiIndex(levels=clevels, names=cnames, codes=clabels)
+
+        # Assign new index to dataframe
+        pvdf.columns = mi
+        pvdf_mask.columns = mi
+
+        # And sort according to depth
+        pvdf.sort_index(axis=1, level='CoordZ', inplace=True, sort_remaining=False)
+        pvdf_mask.sort_index(axis=1, level='CoordZ', inplace=True, sort_remaining=False)
+
+
+        # Now stor index information also as separate lists
+        self.sensor_types = list(pvdf.columns.get_level_values('SensorType'))
+        self.sensor_data_types = list(pvdf.columns.get_level_values('DataType'))
+        self.sensor_data_units = list(pvdf.columns.get_level_values('DataUnit'))
+        self.sensor_id = list(pvdf.columns.get_level_values('SensorID'))
+        self.sensor_depths = np.array(pvdf.columns.get_level_values('CoordZ'))
+
+        # TODO: implement calibration in separate method
+        # # Apply calibrations
+        # if calfile is not None:
+        #     sensorids = pvdf.columns.get_level_values('SensorID')
+        #     for id in sensorids[:-2]:
+        #          #pdb.set_trace()
+        #          pvdf.iloc[:,id] += caldata[caldata['Channel']==id+1]['dT'].values[0]
+
+        # Now remove sensors that we know are above ground
+        # This could be also programmed based on the CoordZ value...
+        # pvdf2 = pvdf.drop([0,1,2,3,18], level=1, axis=1, errors='ignore')
+
+        self.rawdata = pvdf.astype(float)
+        self.rawdata_mask = pvdf_mask.astype(float)
+
+        # consistency check:
+        temp_sensors =  np.array(self.sensor_data_types) == 'Temp'
+        degC_cols = (np.array(self.sensor_data_units) == 'C') & temp_sensors
+        K_cols = (np.array(self.sensor_data_units) == 'K') & temp_sensors
+
+        self.rawdata[self.rawdata.iloc[:, degC_cols] < -273.15] = np.NaN
+        self.rawdata[self.rawdata.iloc[:, K_cols] < 0] = np.NaN
+
+        # TODO: Implement mask handling, currently mask is only read and stored
+
+        self.calc_daily_average()
+
+
+    def export(self, fname, delim=', '):
+        """
+        This method should take a filename as input and export the ground temperature data
+        from the borehole as a textfile.
+        """
+
+        if self.daily_ts is None:
+            self.calc_daily_average()
+
+        # TODO: Masking in exported data
+
+        from StringIO import StringIO
+
+        # Writing to a buffer
+        # output = StringIO()
+        # self.daily_ts.to_csv(output, mode='w', line_terminator='\n', float_format="%.3f", na_rep='---', header=False)
+
+
+        with open(fname, 'w') as fid:
+            fid.write('{0:15s}{1}\n'.format('Borehole:', self.name))
+            fid.write('{0:15s}{1}\n'.format('Latitude:', self.latitude))
+            fid.write('{0:15s}{1}\n'.format('Longitude:', self.longitude))
+            fid.write('{0:15s}{1}\n'.format('Description:', self.description))
+            fid.write('{0:15s}{1}\n'.format('SensorType:', ', '.join(['{0}'.format(f) for f in self.sensor_types])))
+            fid.write('{0:15s}{1}\n'.format('DataUnits:', ', '.join(['{0}'.format(f) for f in self.sensor_data_units])))
+            fid.write('{0:15s}{1}\n'.format('Depths:', ', '.join(['{0:.2f}'.format(f) for f in self.sensor_depths])))
+            fid.write('# ')
+            fid.write('-'*100)
+            fid.write('\n')
+            #fid.write(output.getvalue())
+            self.daily_ts.to_csv(fid, mode='a', line_terminator='\n', float_format="%.3f", na_rep='---',
+                                 header=False)
+
+        # output.close()
+
+
+    def get_limmits(self, fullts=False):
+        """Get the date limits of the time series.
+
+        :param fullts: (boolean, default False) use rawdata full time series
+        :return:
+        """
+        if fullts:
+            try:
+                return [self.rawdata.index[0].date(), self.rawdata.index[-1].date()]
+            except AttributeError:
+                return [self.rawdata.index[0], self.rawdata.index[-1]]
+        else:
+            try:
+                return [self.daily_ts.index[0].date(), self.daily_ts.index[-1].date()]
+            except AttributeError:
+                return [self.daily_ts.index[0], self.daily_ts.index[-1]]
+
+
+    def calc_daily_average(self, mindata=1, threshold=0.9):
+        """Calculates daily averages of borehole data
+
+        Input arguments:
+        mindata:      The minimum number of data per day, if less, date will be masked
+        threshold:    The relative number of measurements that must be available per day.
+                      Default 0.9 means that minimum 9 of 10 measurements must be available,
+                      and not masked. If measurement interval is every 3 h, no measurements
+                      must be missing. If interval is every 1 h, 2 measurements may be missing
+
+        tz_unaware:   Flag to allow time zone unaware averaging
+                      With physical data it makes most sense to calculate the
+                      daily average based on local time
+
+        Adds a daily_ts DataFrame to the borehole instance
+
+        The dominant data frequency is calculated for each day in original timeseries,
+        any date with more than 90% (default threshold) of the data (according to the
+        dominant frequency) available will have an average calculated.
+
+        Averages may be biased on days where the measurement frequencies changed to a faster
+        frequency.
+
+        This could be avoided by implementing a masking whenever there are more measurements
+        available than the maximum possible with the dominant frequency.
+
+        """
+
+        # TODO: Handle masking when frequency changes consistently (so not just when a data point is missing...)
+
+        if self.rawdata is None:
             return
 
-        if type(channels) not in [list, np.ndarray, tuple]:
-            channels = [channels]
+        # TODO: Handle masks in calculation of daily averages
+        grouped = self.rawdata.groupby(self.rawdata.index.date)
+        daily_ts = grouped.mean()
+        daily_count = grouped.count()
+        daily_frequency = daily_count.median()
 
-        for cid in channels[::-1]:
-            self.timeseries.data = np.delete(self.timeseries.data, cid, 1)
-            self.depth = np.delete(self.depth, cid, None)
-            if self.calibration is not None:
-                self.calibration = np.delete(self.calibration, cid, None)
+        # For data sources with a data interval of more than 1 day,
+        # the aggregation to daily values result in an index consisting
+        # of datetime.date objects.
+        # To be sure we always have a pd.DatetimeIndex, we specifically convert.
+        daily_ts.index = pd.DatetimeIndex(daily_ts.index)
 
-                # Should we handle parameter: "channels" as well?
+        daily_ts = daily_ts[(daily_count >= daily_frequency * threshold) & (daily_count >= mindata)]
 
-    def mask_channels(self, channels=None):
-        """
-        Call signature:
-        logger.mask_channels(channels=None)
-
-        Masks the specified channel(s), channels may be a list of channel indices.
-        """
-        if channels is None:
-            return
-        self.timeseries.mask(columns=channels)
-
-
-class borehole:
-    def __init__(self, name=None, date=None, lat=None, lon=None, \
-                 description=None, loggers=None, fname=None):
-
-        self.name = name
-        self.date = date
-        self.latitude = lat
-        self.longitude = lon
-        self.description = description
-        self.depths = None
-        self.daily_ts = None
-        if fname is None:
-            self.fname = None
-            self.path = None
-        else:
-            self.path, self.fname = os.path.split(fname)
-
-        if loggers is None:
-            self.loggers = list()
-        else:
-            self.loggers = loggers
-
-        if fname not in [None, []]:
-            self.load_borhole(fname=fname)
-
-    def __getstate__(self):
-        """
-        Creates a dictionary of borehole variables. daily_ts object is
-        converted to a dictionary available for pickling. Logger list is
-        iterated and logger instances converted to dictionaries for
-        pickling
-        """
-        odict = odict = copy.deepcopy(self.__dict__)  # copy the dict since we change it
-        # Get timeseries instance as dictionary
-        if self.daily_ts is not None:
-            odict['daily_ts'] = self.daily_ts.__getstate__()
-        for id, l in enumerate(odict['loggers']):
-            odict['loggers'][id] = l.__getstate__()
-        return odict
-
-    def __setstate__(self, sdict):
-        """
-        Updates instance variables from dictionary.
-        """
-        daily_ts = sdict.pop('daily_ts', None)
-        loggers = sdict.pop('loggers', None)
-        self.__dict__.update(sdict)  # update attributes
-
-        if not self.__dict__.has_key('daily_ts'):
-            self.daily_ts = None
-        if not self.__dict__.has_key('loggers'):
-            self.loggers = []
-
-        if daily_ts is not None and type(daily_ts) == dict:
-            if self.daily_ts is None:
-                # create new instance of timeseries
-                self.daily_ts = myts(None, None)
-            # update timeseries instance with dictionary data
-            self.daily_ts.__setstate__(daily_ts)
-
-        if self.loggers == []:
-            # empty logger list, just add new loggers!
-            for id, l in enumerate(loggers):
-                if type(l) == dict:
-                    self.loggers.append(new.instance(logger))
-                    self.loggers[id].__setstate__(l)
-        else:
-            # We are updating an existing instance!
-            print "option to update existing loggers not implemented yet!"
-            pdb.set_trace()
-
-    def pickle(self, fullfile_noext=None):
-        """
-        Pickle borehole instance to the specified file.
-        filename will have the extension .pkl appended.
-        """
-        if fullfile_noext is None:
-            if self.path is None:
-                path = basepath
-            else:
-                path = self.path
-            if self.fname is None:
-                fname = self.name
-            else:
-                ext, fname = self.fname[::-1].split('.')
-                fname = fname[::-1]
-            fullfile_noext = os.path.join(path, fname)
-
-        if type(fullfile_noext) in [list, tuple]:
-            # Concatenate path elements
-            fullfile_noext = os.path.join(*fullfile_noext)
-
-        with open(fullfile_noext + '.pkl', 'wb') as pklfh:
-            # Pickle dictionary using highest protocol.
-            pickle.dump(self, pklfh, -1)
-
-    def load_borhole(self, fname):
-        items, comments, nl = get_property_info(fname=fname)
-
-        for key, value in items.items():
-            if key == 'date':
-                self.__dict__[key] = dateutil.parser.parse(value)
-            elif key in ['latitude', 'longitude']:
-                self.__dict__[key] = float(value)
-            else:
-                self.__dict__[key] = value
-
-    def auto_process(self, fname="auto_processing", path=None):
-        """
-        call signature:
-        auto_process(fname="auto_processing", path=None)
-
-        Method to initiate auto prossessing steps defined in a file
-        located in the same directory as the borehole definition file,
-        or in the specified directory path.
-
-        If path is None, the path of the borehole definition file will be used,
-        if known.
-
-        The file auto_processing.py shoul have a method defined as:
-
-        def auto_process(bhole):
-            # do something with bhole
+        start = self.rawdata.index[0]
+        try:
+            start = start.date()
+        except:
             pass
-        """
 
-        if path is None and self.path is not None:
-            path = self.path
-        if path is None:
-            print "No path specified for auto processing! Nothing done...!"
-            return
-        # fname is the filename without the .py/.pyc extention
+        end = self.rawdata.index[-1]
+        try:
+            end = end.date()
+        except:
+            pass
 
-        fullfile_noext = os.path.join(path, fname)
-        pyfile = fullfile_noext + ".py"
-        if os.path.isfile(pyfile):
-            execfile(pyfile, {}, locals())
+        # if the frequency is daily or higher, fill missing days...
+
+        td = ((daily_ts.index[-1] - daily_ts.index[0]) / len(daily_ts))
+        if td.days <= 1:
+            # fill any missing dates with NaN values (which is equivalent to "don't gap-fill": method=None)
+            self.daily_ts = daily_ts.reindex(pd.date_range(start, end), method=None)
         else:
-            print "Specified processing file not found! Nothing done ...!"
-            return
-
-        locals()['auto_process'](self)
-
-        print "Applied processing steps from {0}".format(pyfile)
-
-    def __str__(self):
-        def print_date(date):
-            yr = str(self.date.year)
-            mm = str(self.date.month)
-            dd = str(self.date.day)
-            if len(mm) < 2:
-                mm = '0' + mm
-            if len(dd) < 2:
-                dd = '0' + dd
-            return yr + '-' + mm + '-' + dd
-
-        logstr = ''
-        for l in self.loggers:
-            logstr += '  %s\n' % l.sn
-
-        txt = 'Borehole name:      %s' % self.name + '\n' + \
-              'Drill date:         %s' % print_date(self.date) + '\n' + \
-              'Latitude:           %f' % self.latitude + '\n' + \
-              'Longitude:          %f' % self.longitude + '\n' + \
-              'Description:        %s' % self.description + '\n' + \
-              'Number of loggers:  %i' % len(self.loggers) + '\n' + \
-              logstr
-
-        return txt
-
-    def add_data(self, fname, paramsd=None, hlines=None):
-        if (paramsd is None) and (hlines is None):
-            paramsd, comments, hlines = get_property_info(fname)
-
-        success = False
-        if ('borehole' not in paramsd):
-            # do we have a borehole name?
-            print "No borehole information in file! Cannot import."
-            return False
-        elif (paramsd['borehole'] != self.name):
-            # Yes, but does it corespond to this borehole
-            print "Logger info does not match borehole info"
-            return False
-        elif 'sn' in paramsd:
-            # Do we have a serial number? Is it already registered?
-
-            for lid, l in enumerate(self.loggers):
-                if l.sn == paramsd['sn']:
-                    # If sn matches existing
-                    self.loggers[lid].append(fname=fname, paramsd=paramsd, hlines=hlines, mtype='oldest')
-                    success = True
-                    break
-
-            if not success:
-                # So the logger is not registered yet...
-                print '--------------------------------------------------------------'
-                print 'Adding logger with SN ' + paramsd['sn'] + ' to borehole ' + self.name
-                self.loggers.append(logger())
-                self.loggers[-1].append(fname=fname, paramsd=paramsd, hlines=hlines, mtype='none')
-
-            return True
-        else:
-            print "No serial number information in file! Cannot import."
-            return False
-
-    def drop_channels(self, logger_sn=None, logger_id=None, channels=None):
-        """
-        Pass an index to a logger in logger_id and
-        a list of channels to drop, an the method will delete
-        these channles from the logger.
-
-        Pt.: the channels property is unaffected, but depths, and calibration
-        is altered accordingly.
-        """
-
-        if logger_sn is not None:
-            sn_list = dict()
-            sn_list.update([[l.sn, lid] for lid, l in enumerate(self.loggers)])
-            if logger_sn in sn_list:
-                logger_id = sn_list[logger_sn]
-            else:
-                logger_id = None
-
-        if logger_id is not None and channels is not None:
-            self.loggers[logger_id].drop_channels(channels)
-            self.calc_daily_avg()
-
-    def mask_channels(self, logger_sn=None, logger_id=None, channels=None):
-        """
-        Call signature
-        mask_channels(logger_sn=None, logger_id=None, channels=None)
-
-        Will mask specifiec channels in the specified logger.
-        Logger can be specified either by serial number (string) or by logger_id (index
-        into the borehole.loggers array).
-        channels is a list of channel indices to mask.
-        """
-
-        if logger_sn is not None:
-            sn_list = dict()
-            sn_list.update([[l.sn, lid] for lid, l in enumerate(self.loggers)])
-            if logger_sn in sn_list:
-                logger_id = sn_list[logger_sn]
-            else:
-                logger_id = None
-
-        if logger_id is None and len(self.loggers) == 1:
-            logger_id = 0
-
-        if logger_id is not None and channels is not None:
-            self.loggers[logger_id].mask_channels(channels)
-            self.calc_daily_avg()
-
-    def limit(self, lim):
-        """
-        Not implemented yet!
-        """
-        pass
-
-    def calc_daily_avg(self, mindata=None):
-        if len(self.loggers) == 0:
-            return
-
-        if mindata is None:
-            # Estimate the number of data points per day
-            self_freq = int(1 / self.loggers[0].timeseries.estimate_frequency())
-            if 24 < self_freq < 1:
-                print ""
-                print "Estimated frequency of data series from logger " + self.loggers[0].sn + \
-                      " is outside common\n range (1-24 points per day)."
-                print "Aborting calculation of daily average of borehole " + self.name
-                print ""
-                return
-            else:
-                print "Estimated data frequency = {0} measurements/day".format(self_freq)
-
-            # Get daily average from first logger, and setup depth array
-            mindata = self_freq
-            self.mindata = mindata
-
-        self.daily_ts = self.loggers[0].timeseries.calc_daily_avg(mindata=mindata)
-        self.depths = copy.copy(self.loggers[0].depth)
-
-        # If more loggers, stack data from these, using masked entries if
-        # timeseries have different steps.
-        if len(self.loggers) > 1:
-            for l in self.loggers[1:]:
-                # Estimate the number of data points per day
-                self_freq = int(1 / self.loggers[0].timeseries.estimate_frequency())
-                if 24 < self_freq < 1:
-                    print ""
-                    print "Estimated frequency of data series from logger " + l.sn + \
-                          " is outside common\n range (1-24 points per day)."
-                    print "Aborting calculation of daily average of borehole " + self.name
-                    print ""
-                    return
-                self.daily_ts.hstack(l.timeseries.calc_daily_avg(mindata=self_freq))
-                [self.depths.append(d) for d in l.depth]
-
-        # sort depths in ascending order
-        sid = np.argsort(self.depths)
-        self.depths = list(np.take(self.depths, sid))
-
-        # apply the same order to the data in the timeseries
-        self.daily_ts.data = self.daily_ts.data[:, sid]
-
-    def calc_monthly_avg(self, mindata=None):
-        """
-        calc_monthly_average will take the daily_avg time series and form a
-        monthly series based on that.
-
-        NB: For now, there is no good implementation of a minimum number of entries
-        in a month, to trigger a mask. You can specify a number by passing it
-        in the call to mindata.
-        It would be nice to include possibility in MyTimeseries to flag each
-        entry with meta data, f.ex. the number of data in an averaged point.
-        """
-
-        if not self.__dict__.has_key('daily_ts'):
-            self.calc_daily_avg()
-
-        if len(self.loggers) == 0:
-            return
-
-        if mindata is None:
-            mindata = 1
-
-        self.monthly_ts = self.daily_ts.calc_monthly_avg(mindata=mindata)
-
-        # sort depths in ascending order
-        sid = np.argsort(self.depths)
-        self.depths = list(np.take(self.depths, sid))
-
-        # apply the same order to the data in the timeseries
-        self.daily_ts.data = self.daily_ts.data[:, sid]
-
-    def print_monthly_data(self):
-        """
-        Call signature:
-        print_monthly_data()
-
-        Function to print the monthly averages of a time series.
-
-        #It will print to the console:
-        #- The borehole name
-        #- The first and last day of data in the full time series
-        #- The date interval for which information will be printed
-        #- Max, Min and MeanGT for each depth.
-        """
-
-        if not self.__dict__.has_key('monthly_ts'):
-            self.calc_monthly_avg()
-
-        datetimes = self.monthly_ts.times
-        years = np.vstack((np.array([t.year for t in datetimes]),
-                           np.arange(0, len(datetimes)))).T
-
-        months = np.arange(1, 13)
-        months_str = [dt.date(2009, m, 1).strftime('%b') for m in months]
-
-        table = np.ma.masked_all((self.monthly_ts.data.shape[1], 13))
-        table_mask = np.ma.getmaskarray(table)
-
-        table[0::, 0] = self.depths
-
-        # prt_fmt = np.ones((1,13)).*
-        print " "
-        print "--------------------------------------------------------------------"
-        print "Borehole %s" % (self.name,)
-        print "--------------------------------------------------------------------"
-        for y in np.unique(years[:, 0]):
-            table_mask.fill(True)
-            table_mask[0::, 0] = False
-
-            for yid in years[years[:, 0] == y, 1]:
-                mo = datetimes[yid].month
-                table[:, mo] = self.monthly_ts.data[yid, :]
-                table_mask[:, mo] = self.monthly_ts.data[yid, :].mask
-
-            table.mask = table_mask
-
-            print " "
-            print "Year:  %i" % (y)
-            print "Depth\t" + "\t".join(months_str)
-            for k in np.arange(table.shape[0]):
-                # print "\t".join(["%.2f" % (t,) for t in table[k, :]])
-                if table.mask[k, 0] == True:
-                    outstr = "---"
-                else:
-                    outstr = "{0: .2f}".format(table[k, 0])
-                for t, m in zip(table[k, 1:], table.mask[k, 1:]):
-                    if m == True:
-                        outstr = "\t".join([outstr, '---'])
-                    else:
-                        outstr = "\t".join([outstr, "{0: .2f}".format(t)])
-                print outstr
-
-    def calc_thaw_depth(self, date, fullts=False):
-        """
-        Method to calculate thawdepth on a specific date
-        Presently only the daily averaged series is implemented
-
-        This methods have problems, when the ground starts to freeze from the top.
-        Presently, mainly calc_thaw_depth_at_node is used for ALT calculation!
-        """
-
-        def x_at_y_eq_0(x_1, x_2, y_1, y_2):
-            """
-            Calculates the value of x at y=0, thus the crossing point of the
-            x-axis. According to the general equation:
-
-            x_0 = x_1 - y_1 / ((y_2-y_1)/(x_2-x_1))
-            """
-
-            return x_1 - y_1 / ((y_2 - y_1) / (x_2 - x_1))
-
-        raw_input('Beware! This method has problems with ground freezing from top! [press enter to proceed]')
-
-        if not fullts:
-
-            if self.daily_ts is None:
-                self.calc_daily_avg()
-
-            # Get the index of the day in question
-            did = find(self.daily_ts.times == date)
-
-            if not did:
-                raise ValueError("Date does not exist in data set")
-
-            # Select only ground temperatures
-            GTid = find(np.array(self.depths) >= 0.)
-            data = self.daily_ts.data[did, GTid].flatten()
-            depths = np.take(self.depths, GTid)
-
-            ids = np.argsort(depths)
-            depths = depths[ids]
-            data = data[ids]
-
-            # Find all nodes that are unfrozen
-            frozen = find(data <= 0)
-            # Find all nodes that are frozen
-            unfrozen = find(data > 0)
-
-            # If there are frozen nodes
-            if len(frozen) != 0:
-                # Filter, so that we keep only those unfrozen nodes that are
-                # above frozen nodes.
-
-                # NB: This assumes that depths are increasing with node number!
-
-                unfrozen = unfrozen[unfrozen < frozen[0]]
-
-            thawd = np.ma.zeros(3)
-            thawd.mask = np.ma.getmaskarray(thawd)
-            thawd.mask = True
-
-            pdb.set_trace()
-
-            if True:  # len(unfrozen) != 0 and len(frozen) != 0:
-
-                # General equation for calculating x_0 @ y=0:
-                #    x_0 = x_1 - y_1 / ((y_2-y_1)/(x_2-x_1))
-
-                # We do 3 estimations of the frost table based on:
-                # a) two points just above the frost table
-                # b) one point above and one below frost table
-                # c) two points below frost table.
-
-                if len(unfrozen) >= 2:
-                    # Calculate based on two points above frost table
-                    thawd[0] = x_at_y_eq_0(
-                        depths[unfrozen[-2]],
-                        depths[unfrozen[-1]],
-                        data[unfrozen[-2]],
-                        data[unfrozen[-1]])
-                    thawd.mask[0] = False
-
-                if len(frozen) >= 2:
-                    # Calculate based on two points below frost table
-                    thawd[1] = x_at_y_eq_0(
-                        depths[frozen[0]],
-                        depths[frozen[1]],
-                        data[frozen[0]],
-                        data[frozen[1]])
-                    thawd.mask[1] = False
-
-                if len(unfrozen) >= 1 and len(frozen) >= 1:
-                    # Calculate based on one point above and below frost table
-                    thawd[2] = x_at_y_eq_0(
-                        depths[unfrozen[-1]],
-                        depths[frozen[0]],
-                        data[unfrozen[-1]],
-                        data[frozen[0]])
-                    thawd.mask[0] = False
-
-                if len(unfrozen) >= 1 and len(frozen) >= 1:
-                    if np.logical_or(thawd[0] > depths[frozen[0]], thawd[0] < depths[unfrozen[-1]]):
-                        thawd.mask[0] = True
-
-                    if np.logical_or(thawd[1] > depths[frozen[0]], thawd[1] < depths[unfrozen[-1]]):
-                        thawd.mask[1] = True
-
-                    return thawd, (data[unfrozen[-1]] - 0) / (data[unfrozen[-1]] - data[frozen[0]])
-
-                else:
-
-                    return thawd, 0
-
-                    # if not np.all(np.diff(np.array([unfrozen[-2:],frozen[0:2]]).flatten()) == 1):
-                    #     print "There are masked values close to frost table."
-                    #     print "Estimated thaw depths may be inaccurate!"
-
-            else:
-                return thawd, -9999.
-        else:
-            raise "Thaw depth calculation based on full time series is not implemented!"
-
-    def calc_thaw_depth_all(self, date, fullts=False):
-        """
-        Method to calculate thawdepth on a specific date
-        Presently only the daily averaged series is implemented
-
-        This version should track and return several 0 degree isotherms!
-        Not implemented yet.
-        """
-
-        raise NotImplementedError('Not implemented!')
-
-    def calc_thaw_depth_at_node(self, date, node, fullts=False):
-        """
-        Method to calculate thawdepth on a specific date
-        Presently only the daily averaged series is implemented
-        
-        This version should calculate the thaw-depth below the specified node.
-        Thus, the temperature at the specified node should be above zero, and
-        the temperature at node+1 should be below zero.
-        The method will throw an error, if this is not the case.
-        """
-
-        # raise NotImplementedError('Not implemented!')
-
-        def x_at_y_eq_0(x_1, x_2, y_1, y_2):
-            """
-            Calculates the value of x at y=0, thus the crossing point of the
-            x-axis. According to the general equation:
+            # TODO: Implement fancy fuzzy frequency checking and reindexing
+            self.daily_ts = daily_ts
             
-            x_0 = x_1 - y_1 / ((y_2-y_1)/(x_2-x_1))
-            """
-
-            return x_1 - y_1 / ((y_2 - y_1) / (x_2 - x_1))
-
-        if not fullts:
-
-            if self.daily_ts is None:
-                self.calc_daily_avg()
-
-            # Get the index of the day in question
-            did = find(self.daily_ts.times == date)
-
-            if len(did) == 0:
-                raise ValueError("Date does not exist in data set")
-
-            # Select only ground temperatures
-            GTid = find(np.array(self.depths) >= 0.)
-            depths = np.take(self.depths, GTid)
-
-            data = self.daily_ts.data[did, GTid].flatten()
-
-            # sort data according to depths
-            ids = np.argsort(depths)
-            depths = depths[ids]
-            data = data[ids]
-            # note that node is not changed by the sorting,
-            # so this method assumes that node is chosen based 
-            # on already sorted depths!
-
-            # remove any masked data, but keep track we have the right index
-            node = node - data.mask[0:node].sum()
-            data = data.compressed()
-
-            # Ensure that we can do these calculations!
-            if node < 2 or node > len(depths) - 3:
-                raise ValueError(
-                    'node-argument must be larger than 2 and less than number of depths (excluding above ground depths) minus 2.')
-
-            if data[node] < 0. or data[node + 1] > 0:
-                raise ValueError('node argument should be depth index for node immediately above frost table.')
-
-            # Prepare array to store thaw depths
-            # Will hold the three different estimations
-            thawd = np.ma.zeros(3)
-            thawd.mask = np.ma.getmaskarray(thawd)
-            thawd.mask = True
-
-            # General equation for calculating x_0 @ y=0:
-            #    x_0 = x_1 - y_1 / ((y_2-y_1)/(x_2-x_1))
-
-            # We do 3 estimations of the frost table based on:
-            # a) two points just above the frost table
-            # b) one point above and one below frost table
-            # c) two points below frost table.
-
-            if node >= 2:
-                # Calculate based on two points above frost table
-                thawd[0] = x_at_y_eq_0(
-                    depths[node - 1],
-                    depths[node],
-                    data[node - 1],
-                    data[node])
-                if np.isnan(thawd[0]):
-                    thawd.mask[0] = True
-
-            if np.all(data[node + 1:node + 3] < 0.):
-                # Calculate based on two points below frost table
-                thawd[1] = x_at_y_eq_0(
-                    depths[node + 1],
-                    depths[node + 2],
-                    data[node + 1],
-                    data[node + 2])
-                if np.isnan(thawd[1]):
-                    thawd.mask[1] = True
-
-            if node >= 1 and data[node + 1] < 0.:
-                # Calculate based on one point above and below frost table
-                thawd[2] = x_at_y_eq_0(
-                    depths[node],
-                    depths[node + 1],
-                    data[node],
-                    data[node + 1])
-                if np.isnan(thawd[2]):
-                    thawd.mask[2] = True
-
-            return thawd, 0
-
-        else:
-            raise "Thaw depth calculation based on full time series is not implemented!"
-
-    def calc_ALT(self, lim=None, fullts=False, silent=False):
-        """
-        Under CONSTRUCTION....
-        
-        [Yr maxd maxddayID] = SnuwALT(dateinput,data,depths)
-        
-        dateinput:   serial number date as produced by datenum
-        depths:      depths included in data (length(depths) = size(data,2))
-        data:        matrix with depths as columns, days as rows
-        maxddayID:   Index into dateinput that gives maximum thawdepth
-        """
-
-        if not fullts:
-            # Calculate the daily averages if missing
-            if self.daily_ts is None:
-                self.calc_daily_avg()
-
-            # Limit the time series, if limits are specified
-            if lim is not None:
-                ts = self.daily_ts.limit(lim)
-            else:
-                ts = self.daily_ts
-
-            # Get a unique list of years in the time series
-            Y = np.array([d.year for d in ts.times])
-            Yr = np.unique(Y)
-
-            # Prepare arrays for storing results
-            maxd = np.ma.zeros((len(Yr)), dtype=int)  # index to deepest node with thaw in each year
-
-            # maxdayIDp will hold the date-index for the day with maximum temperature at the
-            #           deepest thawed node (maxd) for each year
-            maxdayIDp = np.zeros_like(Yr)
-
-            # maxdayIDn will hold the date-index for the day with maximum temperature at the
-            #           shallowest frozen node with the condition that a thawed node exists above it
-            maxdayIDn = np.ones_like(Yr) * -1
-
-            # For each date, 3 estimations of thaw depth will be calcualted by extrapolation/interpolation
-            # 1) based on two nodes above frost table
-            # 2) based on two nodes below frost table
-            # 3) based on one node above and below frost table
-
-            thaw_depth_p = np.ma.zeros((len(Yr), 3))  # holds the 3 thaw depths for the madayIDp date
-            thaw_depth_n = np.ma.zeros((len(Yr), 3))  # holds the 3 thaw depths for the madayIDn date
-            ALT_date = np.ma.ones((len(Yr), 2),
-                                  dtype=dt.date)  # holds the two dates for which thaw depths are calculated
-
-            # extract ground temperature data (only depths >= 0.0m
-            GTid = find(np.array(self.depths) >= 0.)
-            depths = np.take(self.depths, GTid)
-            data = ts.data[:, GTid]
-
-            # Loop over individual years
-            for yid, y in enumerate(Yr):
-
-                # Find days from this specific year
-                daysID = find(Y == y)
-
-                # Loop over depths, starting from top
-                # did will be depth index
-                # d will hold temperature data for that depth
-                for did, d in enumerate(data[daysID].T):
-
-                    if np.all(d.mask):
-                        # If all data are masked, continue to next iteration/depth.
-                        continue
-
-                    # Find days with positive thaw at present depth (in this specific year)
-                    tid = find(d >= 0)
-                    if len(tid) != 0:
-                        # If exist, set max thaw depth to this depth level
-                        maxd[yid] = did
-                        # set maxddayIDp to the index into data (for a certain year) for
-                        # which the temperature is the highest, assuming this is the day
-                        # with deepest active layer. If more days with same temp, take
-                        # last day.
-                        mid = find(d == d.max())
-                        if len(mid) != 0:
-                            maxdayIDp[yid] = daysID[mid.max()]
-                    elif False:
-                        # Here we should handle the situation when data is missing
-                        # in the thaw period from one depth.
-                        # Presently that will be considered as no thaw.
-                        # Should allow to look at deeper depth.
-                        pass
-                    else:
-                        # Otherwise we have passed 0C isotherm, so break loop
-
-                        # set maxddayIDn to the index into data (for a certain year) for
-                        # which the temperature is the highest, and the node above is at
-                        # positive temperatures, assuming this is the day with deepest active
-                        # layer. If more days with same temp, take last day.
-
-                        if not did == 0:
-                            # If this is not the upper most node, find all days
-                            # with positive temperatures in depth above the current.
-                            nodes_up = 1
-                            d_above = data[daysID].T[did - nodes_up, :]
-
-                            # This loop handles situations where all data from a node is masked
-                            # in which case it jumps one node up until it finds data.
-                            # This may still give problems in cases where sensor malfunctions
-                            # during that particular year.
-                            while np.all(d_above.mask):
-                                nodes_up += 1
-                                if nodes_up == -1:
-                                    break
-                                d_above = data[daysID].T[did - nodes_up, :]
-
-                            # If we have no data at this node or above, continue to next iteration
-                            if nodes_up == -1:
-                                continue
-
-                            # Get index to all dates with positive temperatures (at node above the present node)
-                            idxp = find(d_above >= 0)
-
-                            # Now check these days for the highest temperature at the
-                            # present node-depth.
-                            d_filtered = d[idxp]
-                            idx = find(d_filtered == d_filtered.max())
-                            # idx is index into days with positive temperature at depth above...
-                            # make idx index into days of the present year.
-                            idx = idxp[idx]
-
-                            maxdayIDn[yid] = daysID[idx.max()]
-
-                        break
-
-                # Still only looking at one year, if we have thaw, do interpolation
-                if maxd[yid] != 0:
-                    # interpolate to find 0 degr.
-
-                    if maxd[yid] == len(depths) - 1:
-                        print str(Yr[yid]) + ": Max depth beyond grid"
-                        maxd[yid] = depths[-1]
-                    elif maxd[yid] < len(find(depths < 0)):
-                        print str(Yr[yid]) + ": Max depth above second grid point"
-                        maxd[yid] = -9999.
-                    else:
-                        # calculate thaw depths for the date with max temperature at deepest thawed node
-                        thawd, rel_d = self.calc_thaw_depth_at_node(ts.times[maxdayIDp[yid]], maxd[yid])
-                        print "IDp: {0:4d} ({1:10s})    ".format(maxdayIDp[yid], ts.times[maxdayIDp[yid]].__str__()),
-                        thaw_depth_p[yid, :] = np.ma.atleast_2d(thawd)
-
-                        # calculate thaw depths for the date with max temperature at shallowest frozen node
-                        thawd, rel_d = self.calc_thaw_depth_at_node(ts.times[maxdayIDn[yid]], maxd[yid])
-                        print "IDn: {0:4d} ({1:10s})    ".format(maxdayIDn[yid], ts.times[maxdayIDn[yid]].__str__())
-                        thaw_depth_n[yid, :] = np.ma.atleast_2d(thawd)
-
-                        ALT_date[yid, 0] = ts.times[maxdayIDp[yid]]
-                        ALT_date[yid, 1] = ts.times[maxdayIDn[yid]]
-
-            # Mask year entries in ALT_date, where ALT could not be established
-            ALT_date.mask = np.where(ALT_date == 1, np.ones(ALT_date.shape, dtype=bool),
-                                     np.zeros(ALT_date.shape, dtype=bool))
-
-            # maxd will hold the largest estimate of the two days considered.
-            if False:
-                # use means of all methods, even if some are way off.
-                tdp = thaw_depth_p.mean(axis=1)
-                tdn = thaw_depth_n.mean(axis=1)
-                tdp_std = thaw_depth_p.std(axis=1)
-                tdn_std = thaw_depth_n.std(axis=1)
-
-            else:
-                # use only "two-points-above" and "one-point-above/one-point-below", and average these two.
-                tdp = thaw_depth_p[:, [0, 2]].mean(axis=1)
-                tdn = thaw_depth_n[:, [0, 2]].mean(axis=1)
-                tdp_std = thaw_depth_p[:, [0, 2]].std(axis=1)
-                tdn_std = thaw_depth_n[:, [0, 2]].std(axis=1)
-
-            # Consider taking always the solution based on "two points above"", if available.
-            # and only reverting to "one-point-above/one-point-below" if the "two-points-above"
-            # solution is masked (does not exist)
-
-            maxdepth = np.where(tdp > tdn, tdp, tdn)
-
-            if not silent:
-                print " "
-                print " "
-                print "++ = 2 nodes above frost table"
-                print "+- = 1 node above frost table and one node below"
-                print "-- = 2 nodes below frost table"
-                print " "
-                print "Estimations based on date of highest temperature at deepest thawed node:"
-                print "Year    Depth(++)    Depth(+-)    Depth(--)    Date             maxd"
-                str_fmt = "{0:4d}    {1:6s}       {2:6s}       {3:6s}       {4:10s}    {5:4d}"
-                for yid in np.arange(len(Yr)):
-                    print str_fmt.format(Yr[yid],
-                                         np.round(thaw_depth_p[yid, 0], 2).__str__(),
-                                         np.round(thaw_depth_p[yid, 2], 2).__str__(),
-                                         np.round(thaw_depth_p[yid, 1], 2).__str__(),
-                                         ALT_date[yid, 0].__str__(),
-                                         maxd[yid])
-                print " "
-                print "Estimations based on date of highest temperature at node below deepest thawed node:"
-                print "Year    Depth(++)    Depth(+-)    Depth(--)    Date        maxd"
-                for yid in np.arange(len(Yr)):
-                    print str_fmt.format(Yr[yid],
-                                         np.round(thaw_depth_n[yid, 0], 2).__str__(),
-                                         np.round(thaw_depth_n[yid, 2], 2).__str__(),
-                                         np.round(thaw_depth_n[yid, 1], 2).__str__(),
-                                         ALT_date[yid, 1].__str__(),
-                                         maxd[yid])
-
-                print " "
-                print "Summary:"
-                print "Depth: average and std of ++ and +- thaw depths"
-                print "ALT: the maximum of the averages for the two dates considered"
-                print "Year    ALT      Depth(p) std   Date          Depth(n) std   Date      "
-                for yid in np.arange(len(Yr)):
-                    print "%4i  %6.2f    %6.2f    %4.2f  %10s   %6.2f    %4.2f  %10s" % (Yr[yid], maxdepth[yid],
-                                                                                         tdp[yid], tdp_std[yid],
-                                                                                         ALT_date[yid, 0],
-                                                                                         tdn[yid], tdn_std[yid],
-                                                                                         ALT_date[yid, 1])
-                print " "
-                print " "
-                print " "
-            return (Yr, maxdepth, thaw_depth_p, thaw_depth_n, ALT_date)
-
-            # id           index corresponding to a certain year
-            # maxdayIDp    holds index of day in current year for which max thawdepth occurs
-            # maxdayIDn    holds index of day after max thawdepth has occurred
-            # maxd         holds index into depths for max thawed depth
-
-        else:
-            raise "Full timeseries support in calc_ALT is not implemented yet!"
-
-    def calc_ALT_simple(self, lim=None, fullts=False, silent=False):
-        """
-        Under CONSTRUCTION....
-        
-        Will give the deepest depth that has positive temperature for every year in the ts.
-        
-        [Yr maxd maxddayID] = SnuwALT(dateinput,data,depths)
-        
-        dateinput:   serial number date as produced by datenum
-        depths:      depths included in data (length(depths) = size(data,2))
-        data:        matrix with depths as columns, days as rows
-        maxddayID:   Index into dateinput that gives maximum thawdepth
-        """
-
-        raw_input('Beware: Method not completed and tested! [Press enter to continue]')
-
-        if not fullts:
-            if self.daily_ts is None:
-                self.calc_daily_avg()
-
-            if lim is not None:
-                ts = self.daily_ts.limit(lim)
-            else:
-                ts = self.daily_ts
-
-            ydict = ts.split_years()
-
-            Yr = sorted(ydict.keys())
-            maxd = []
-            ALT_date = []
-
-            # year_thaw = np.zeros((len(ydict),3))
-
-            # Loop through time series for individual years
-            for y, yts in ydict.items():
-                maxthaw = []  # Holds the 
-                for did in np.arange(len(yts.times)):
-                    try:
-                        maxthaw.append(np.max(np.nonzero(yts.data[did, :] >= 0.0)))
-                    except:
-                        maxthaw.append(0)
-                maxd.append(self.depths[np.max(np.array(maxthaw))])
-                try:
-                    ALT_date.append(yts.times[np.argmax(maxthaw)])
-                except:
-                    pdb.set_trace()
-                    ALT_date.append(np.ma.masked)
-
-            if not silent:
-                print "Year    Depth(p) std  Date          Depth(n) std  Date      "
-                for did in np.arange(len(Yr)):
-                    print "%4i    %6.2f  %10s" % (Yr[did], maxd[did], ALT_date[did])
-
-            return (Yr, maxd, ALT_date)
-
-        else:
-            raise "Full timeseries support in calc_ALT is not implemented yet!"
-
-    def get_depths(self, return_indices=False):
-        """
-        Returns a sorted (ascending) list of sensor depths in the borehole.
-
-        if return_indices is True (default is false), returns a 3 column array,
-        with depths (ascending) in first column, logger index as second column
-        and channel index as third column
-        """
-        dtype = [('depth', float), ('logger_id', int), ('channel_id', int)]
-
-        depths = []
-        for lid, l in enumerate(self.loggers):
-            for cid, d in enumerate(l.depth): depths.append((d, lid, cid))
-        depths = np.array(depths, dtype=dtype)
-
-        depths = np.sort(depths, order='depth')
-
-        if return_indices:
-            return depths
-        else:
-            return depths['depth']
-
-    def get_MAGT(self, end=None, nyears=1, fullts=False):
-        """
-        Call signature:
-        borehole.get_MAGT(end=None, nyears=1, fullts=False)
-
-        This method calculates the Mean Annual Ground Temperature over a period
-        of nyears years, ending on the date specified in the input parameter 'end'.
-        If 'end' is not specified, default is the last full day in the data series.
-
-        MAGT is calculated based on the averaged daily time series unless fullts=True
-        is specified.
-
-        NB: If you want mean ground temperature for a specified date interval,
-        e.g. lim = ["2000-08-01","2009-06-01"] you should call instead
-        borehole.get_MeanGT(lim = ["2000-08-01","2009-06-01"])
-        """
-
-        if not fullts:
-            if self.daily_ts is None:
-                self.calc_daily_avg()
-
-            # check date format, do necessary conversion to datetime.date object
-            if end is None:
-                end = self.daily_ts.times[-1]
-
-            lim = nyears2lim(end, nyears)
-            # if type(end) in [int, float, np.float32, np.float64, np.float96]:
-            #     end = mpl.dates.num2date(end).date()
-            # elif type(end) == str:
-            #     end = dateutil.parser.parse(end, yearfirst=True, dayfirst=True).date()
-            # elif type(end) in [dt.datetime]:
-            #     end = end.date()
-            # elif type(end) != dt.date:
-            #     raise "dates should be either ordinals, date or datetime objects"
-            # 
-            # start = copy.copy(end).replace(year=end.year - nyears)
-            # start = start + dt.timedelta(days=1)
-            # lim = [start, end]
-
-            if (self.daily_ts.times[-1] < end) or (self.daily_ts.times[0] > lim[0]):
-                print "get_MAGT: timeseries not long enough for requested time interval!"
-                pdb.set_trace()
-
-            return self.get_MeanGT(lim)
-
-        else:
-            raise "Full timeseries support in get_MAGT is not implemented yet!"
 
     def get_MeanGT(self, lim=None, fullts=False, ignore_mask=False):
+        # TODO: Implement masking in get_MeanGT, get_MinGT and get_MaxGT
+
+        lim = fix_lim(lim)
+
         if not fullts:
             if self.daily_ts is None:
-                self.calc_daily_avg()
+                self.calc_daily_average()
 
-            if ignore_mask:
-                print "Warning: ignore_mask option not implemented for averaged data!"
+            #     if ignore_mask:
+            #         print "Warning: ignore_mask option not implemented for averaged data!"
+            if lim is not None:
+                meanGT = self.daily_ts.loc[lim[0]:lim[1]].mean()
+            else:
+                meanGT = self.daily_ts.mean()
 
-            meanGT = self.daily_ts.mean(lim)
+            meanGT = meanGT[meanGT.index.get_level_values('CoordZ') >= 0]
 
-            # It is a little tricky to handle the possibility of a masked
-            # value in the value-column. We have to treat data and masks
-            # separately.
-            dtype = [('depth', float), ('value', float)]
-            dtype2 = [('depth', bool), ('value', bool)]
+            #     # It is a little tricky to handle the possibility of a masked
+            #     # value in the value-column. We have to treat data and masks
+            #     # separately.
+            #     dtype = [('depth', float), ('value', float)]
+            #     dtype2 = [('depth', bool), ('value', bool)]
+            #
+            #     meanGT_data = np.array(meanGT, dtype=dtype)
+            #     meanGT_mask = np.array(np.ma.getmaskarray(meanGT), dtype=dtype2)
+            #
+            #     meanGT2 = np.ma.array(meanGT_data, mask=meanGT_mask, dtype=dtype)
+            #
+            #     # insert depths in first column
+            #     meanGT2['depth'] = np.ma.atleast_2d(np.ma.array(self.depths)).transpose()
+            #
+            #     return meanGT2
 
-            meanGT_data = np.array(meanGT, dtype=dtype)
-            meanGT_mask = np.array(np.ma.getmaskarray(meanGT), dtype=dtype2)
-
-            meanGT2 = np.ma.array(meanGT_data, mask=meanGT_mask, dtype=dtype)
-
-            # insert depths in first column
-            meanGT2['depth'] = np.ma.atleast_2d(np.ma.array(self.depths)).transpose()
-
-            return meanGT2
+            return meanGT
         else:
-            meanGT = self.loggers[0].get_mean_GT(lim, ignore_mask)
-
-            # If more loggers, append data from these
-            if len(self.loggers) > 1:
-                for l in self.loggers[1:]:
-                    meanGT = np.append(meanGT, l.get_mean_GT(lim, ignore_mask))
-
-            # Return sorted recarray
-            return np.sort(meanGT, order='depth', axis=0)
-            # raise "Full timeseries support in get_MAGT is not implemented yet!"
+            # TODO: Implement use of the full timeseries in get_MeanGT, get_MinGT and get_MaxGT
+            raise NotImplementedError('Use of full time series not implemented.')
+        #     meanGT = self.loggers[0].get_mean_GT(lim, ignore_mask)
+        #
+        #     # If more loggers, append data from these
+        #     if len(self.loggers) > 1:
+        #         for l in self.loggers[1:]:
+        #             meanGT = np.append(meanGT, l.get_mean_GT(lim, ignore_mask))
+        #
+        #     # Return sorted recarray
+        #     return np.sort(meanGT, order='depth', axis=0)
+        #     # raise "Full timeseries support in get_MAGT is not implemented yet!"
 
     def get_MaxGT(self, lim=None, fullts=False, ignore_mask=False):
+
+        lim = fix_lim(lim)
+
         if not fullts:
             if self.daily_ts is None:
-                self.calc_daily_avg()
+                self.calc_daily_average()
 
-            if ignore_mask:
-                print "Warning: ignore_mask option not implemented for averaged data!"
+            #     if ignore_mask:
+            #         print "Warning: ignore_mask option not implemented for averaged data!"
 
             # Get max of timeseries
-            tsmax = self.daily_ts.max(lim)
+            if lim is not None:
+                maxGT = self.daily_ts.loc[lim[0]:lim[1]].max()
+            else:
+                maxGT = self.daily_ts.max()
 
-            dtype = [('depth', float), ('value', float), ('time', type(tsmax['time']))]
-            maxGT = np.array(tsmax, dtype=dtype)
+            maxGT = maxGT[maxGT.index.get_level_values('CoordZ') >= 0]
 
-            # insert depths in first column
-            maxGT['depth'] = np.array(self.depths)
+            #     dtype = [('depth', float), ('value', float), ('time', type(tsmax['time']))]
+            #     maxGT = np.array(tsmax, dtype=dtype)
+            #
+            #     # insert depths in first column
+            #     maxGT['depth'] = np.array(self.depths)
+            #
+            #     # Return sorted recarray
+            #     return np.sort(maxGT, order='depth')
 
-            # Return sorted recarray
-            return np.sort(maxGT, order='depth')
+            return maxGT
+
         else:
-            # Get max from first logger
-            maxGT = self.loggers[0].get_max_GT(lim, ignore_mask)
-
-            # If more loggers, append data from these
-            if len(self.loggers) > 1:
-                for l in self.loggers[1:]:
-                    maxGT = np.append(maxGT, l.get_max_GT(lim, ignore_mask))
-            # Return sorted recarray
-            return np.sort(maxGT, order='depth', axis=0)
+            raise NotImplementedError('Use of full time series not implemented.')
+        #     # Get max from first logger
+        #     maxGT = self.loggers[0].get_max_GT(lim, ignore_mask)
+        #
+        #     # If more loggers, append data from these
+        #     if len(self.loggers) > 1:
+        #         for l in self.loggers[1:]:
+        #             maxGT = np.append(maxGT, l.get_max_GT(lim, ignore_mask))
+        #     # Return sorted recarray
+        #     return np.sort(maxGT, order='depth', axis=0)
 
     def get_MinGT(self, lim=None, fullts=False, ignore_mask=False):
+
+        lim = fix_lim(lim)
+
         if not fullts:
             if self.daily_ts is None:
-                self.calc_daily_avg()
+                self.calc_daily_average()
 
-            if ignore_mask:
-                print "Warning: ignore_mask option not implemented for averaged data!"
+            #     if ignore_mask:
+            #         print "Warning: ignore_mask option not implemented for averaged data!"
 
             # Get max of timeseries
-            tsmin = self.daily_ts.min(lim)
+            if lim is not None:
+                minGT = self.daily_ts.loc[lim[0]:lim[1]].min()
+            else:
+                minGT = self.daily_ts.min()
 
-            dtype = [('depth', float), ('value', float), ('time', type(tsmin['time']))]
-            minGT = np.array(tsmin, dtype=dtype)
+            minGT = minGT[minGT.index.get_level_values('CoordZ') >= 0]
 
-            # insert depths in first column
-            minGT['depth'] = np.array(self.depths)
+            #     dtype = [('depth', float), ('value', float), ('time', type(tsmin['time']))]
+            #     minGT = np.array(tsmin, dtype=dtype)
+            #
+            #     # insert depths in first column
+            #     minGT['depth'] = np.array(self.depths)
+            #
+            #     # Return sorted recarray
+            #     return np.sort(minGT, order='depth')
 
-            # Return sorted recarray
-            return np.sort(minGT, order='depth')
+            return minGT
+
         else:
-            # Get min from first logger
-            minGT = self.loggers[0].get_min_GT(lim, ignore_mask)
+            raise NotImplementedError('Use of full time series not implemented.')
+        #     # Get min from first logger
+        #     minGT = self.loggers[0].get_min_GT(lim, ignore_mask)
+        #
+        #     # If more loggers, append data from these
+        #     if len(self.loggers) > 1:
+        #         for l in self.loggers[1:]:
+        #             minGT = np.append(minGT, l.get_min_GT(lim, ignore_mask))
+        #
+        #     # Return sorted recarray
+        #     return np.sort(minGT, order='depth', axis=0)
 
-            # If more loggers, append data from these
-            if len(self.loggers) > 1:
-                for l in self.loggers[1:]:
-                    minGT = np.append(minGT, l.get_min_GT(lim, ignore_mask))
+    def get_ALT(self, end_date=None, nyears=1, lim=None, depths=None):
+        if end_date is None:
+            end_date = self.rawdata.index[-1].date()
 
-            # Return sorted recarray
-            return np.sort(minGT, order='depth', axis=0)
+        if lim is None:
+            lim = nyears2lim(end_date, 1)
 
-    def plot_trumpet(self, fullts=False, lim=None, end=None, nyears=None, \
-                     args=None, plotMeanGT=True, fs=12, ignore_mask=False,
-                     depths='all',
-                     **kwargs):
+        if (lim[0] > self.daily_ts.index[-1].date()) or (lim[1] < self.daily_ts.index[0].date()):
+            raise IndexError('Requested date range is outside timeseries.')
+
+        # prepare to filter on depths
+        if (depths is None) or (type(depths) == str and depths.lower() == 'all'):
+            depths = self.sensor_depths
+
+        if not hasattr(depths, '__iter__'):
+            depths = [depths]
+
+        # get max values within time limits
+        maxGT = self.get_MaxGT(lim)
+        maxGT = maxGT[maxGT.notna()]
+
+        # convert depths to column indices
+        did = get_indices(maxGT.index.get_level_values('CoordZ'), depths)
+        did = [i for i in did if not np.isnan(i)]  # remove nan values
+
+        maxT = maxGT[did].values
+        maxT_d = maxGT[did].index.get_level_values('CoordZ').values
+
+        # z0 = find_zero(maxT, maxT_d)[0]
+        z0 = find_zero(maxT, maxT_d)
+
+        if maxT[0] > 0.:
+            z0 = z0[0]
+        else:
+            raise ValueError('Upper most temperature is negative, get_ALT cannot calculate thickness of active layer')
+
+        # return z0, maxT, maxT_d
+        return z0, maxGT
+
+    def get_zaa_stats(self, fullts=False, lim=None, end_date=None, nyears=None):
+        if not fullts:
+            if self.daily_ts is None:
+                self.calc_daily_average()
+
+            if lim is None and nyears is not None:
+                if end_date is None:
+                    end_date = self.daily_ts.index[-1]
+                lim = nyears2lim(end_date, nyears)
+        else:
+            raise NotImplementedError('Full timeseries handling not implemented!')
+            # TODO: Implement full time series in zaa stats
+
+        zaa_stats = self.daily_ts.loc[lim[0]:lim[1]].describe().transpose()
+
+        zaa_stats = zaa_stats[zaa_stats.index.get_level_values('CoordZ') >= 0]
+
+        d_stats = {}
+
+        if len(np.where(zaa_stats['max'] - zaa_stats['min'] <= 0.1)[0]) < 1:
+            d_stats['Dzaa'] = np.max(self.sensor_depths)
+            did = zaa_stats.index.get_level_values('CoordZ') == d_stats['Dzaa']
+            d_stats['Tzaa'] = zaa_stats[did]['mean'].values[0]
+            d_stats['Tstd'] = zaa_stats[did]['std'].values[0]
+            d_stats['exact'] = False
+        else:
+            id = np.where(zaa_stats['max'] - zaa_stats['min'] <= 0.1)[0][0]
+            d_stats['Dzaa'] = zaa_stats.index.get_level_values('CoordZ')[id]
+            d_stats['Tzaa'] = zaa_stats.iloc[id]['mean'].values[0]
+            d_stats['Tstd'] = zaa_stats.iloc[id]['std'].values[0]
+            d_stats['exact'] = True
+
+        # if len(np.where(stats['std'] * 4 < 0.1)[0]) < 1:
+        #     id = len(stats) - 1
+        # else:
+        #     id = np.where(stats['std'] * 4 < 0.1)[0][0]
+
+        return d_stats
+
+    def plot_timeseries(self, depths=None, plotmasked=False, fullts=False, legend=True,
+             annotations=True, lim=None, show=False, figsize=(10,6), **kwargs):
+        """Method to plot the daily timeseries of temperature data from the ground temperature sensors.
+
+        :param depths:
+        :param plotmasked:
+        :param fullts: 
+        :param legend:
+        :param annotations:
+        :param lim:
+        :param kwargs:
+        :return:
         """
-        Method to plot trumpet curve.
+         # TODO: TRANSLATE PLOT FUNCTION TO NEW MODULE - NOTHING DONE YET
+
+
+        if kwargs.has_key('axes'):
+            ax = kwargs.pop('axes')
+        elif kwargs.has_key('Axes'):
+            ax = kwargs.pop('Axes')
+        elif kwargs.has_key('ax'):
+            ax = kwargs.pop('ax')
+        else:
+            fh = plt.figure(figsize=figsize)
+            ax = plt.axes()
+
+        fh = ax.figure
+
+        # Flag to toggle wether full timeseries from the loggers is used or
+        # the averaged daily timeseries.
+        if not fullts:
+            if self.daily_ts is None:
+                self.calc_daily_average()
+
+            if lim is None:
+                lim = self.get_limmits(fullts=False)
+
+            # Ensure limit consists of two datetime objects
+            lim = fix_lim(lim)
+
+            if (depths is None) or (type(depths) == str and depths.lower() == 'all'):
+                depths = self.sensor_depths
+
+            if not hasattr(depths, '__iter__'):
+                depths = [depths]
+
+            depths = [d for d in depths if d > 0.0000001]
+
+            # convert depths to column indices
+            did = get_indices(self.daily_ts.columns.get_level_values('CoordZ'), depths)
+
+            # get copies of the data and times
+            # TODO: Reconsider way to handle getting only ground temperatures
+            data = self.daily_ts[lim[0]:lim[1]].iloc[:, did].values
+            ordinals = map(dt.datetime.toordinal, self.daily_ts[lim[0]:lim[1]].index)
+
+            # TODO: Handle masked values
+            #     if ignore_mask:
+            #         mask = np.zeros(data.shape, dtype=bool)
+            #         mask = np.where(data < -273.15, True, False)
+            #         data.mask = mask
+            #
+            # Find the maximum and minimum temperatures, and round up/down
+            mx = np.nanmax(np.ceil(np.nanmax(data)))
+            mn = np.nanmin(np.floor(np.nanmin(data)))
+
+            # Iterate over all ground temperature columns
+            for c2id, cid in enumerate(did):
+
+                # Option to plot also the masked data points, but keeping
+                # a mask on anything that could not be a real temperature.
+                # if plotmasked:
+                #     mask = np.zeros(data.shape, dtype=bool)
+                #     mask = np.where(data < -273.15, True, False)
+                #     data.mask = mask
+                #
+                # if any(data.mask == False):
+                lh = ax.plot_date(ordinals, data[:,c2id], '-', label="{0:.2f} m".format(depths[c2id]), picker=5, **kwargs)
+                lh[0].tag = 'dataseries'
+
+        else:
+            raise NotImplementedError('Use of full timeseries data is not yet implemented.')
+            # depth_arr = self.get_depths(return_indices=True)
+            #
+            # if (depths is None) or (type(depths) == str and depths.lower() == 'all'):
+            #     depths = depth_arr['depth']
+            #
+            # for d, lid, cid in depth_arr:
+            #     if d in depths:
+            #         # following line is necessary in order for mpl not to connect
+            #         # the points by a straight line.
+            #         self.loggers[lid].timeseries.fill_missing_steps(tolerance=2)
+            #
+            #         # get copies of the data and times
+            #         data = self.loggers[lid].timeseries.data[:, cid].copy()
+            #         times = self.loggers[lid].timeseries.times.copy()
+            #
+            #         ax.hold(hstate)
+            #
+            #         # Option to plot also the masked data points, but keeping
+            #         # a mask on anything that could not be a real temperature.
+            #         if plotmasked:
+            #             mask = np.zeros(data.shape, dtype=bool)
+            #             mask = np.where(data < -273.15, True, False)
+            #             data.mask = mask
+            #         lh = ax.plot_date(times, data, '-', label="%.2f m" % d, picker=5, **kwargs)
+            #         lh[0].tag = 'dataseries'
+            #         hstate = True
+        # end if
+
+        if annotations:
+            if ax.get_title() == '':
+                ax.set_title(self.name)
+            else:
+                ax.set_title(ax.get_title() + ' + ' + self.name)
+
+            ax.set_ylabel('Temperature [$^\circ$C]')
+            ax.set_xlabel('Time')
+
+        fh.axcallbacks = zoom_span.AxesCallbacks(ax)
+
+        if legend:
+            fh.legend(loc=7)
+            fh.tight_layout()
+            fh.subplots_adjust(right=0.85)
+        else:
+            fh.tight_layout()
+
+
+        if show:
+            plt.show(block=False)
+
+        return plt.gca()
+
+
+    def plot_date(self, date, annotations=True, fs=12, xlim=None, show=True, **kwargs):
+        """Plot temperature depth profile on a specific date.
+
+        :param date:
+        :param annotations:
+        :param fs:
+        :param xlim:
+        :param show:
+        :param kwargs:
+        :return:
+        """
+        if kwargs.has_key('axes'):
+            ax = kwargs.pop('axes')
+        elif kwargs.has_key('Axes'):
+            ax = kwargs.pop('Axes')
+        elif kwargs.has_key('ax'):
+            ax = kwargs.pop('ax')
+        else:
+            fh = plt.figure()
+            ax = plt.axes()
+
+        gid = find(self.daily_ts.columns.get_level_values('CoordZ') >= 0)
+        depths = np.take(self.daily_ts.columns.get_level_values('CoordZ'), gid).values
+
+        data = self.daily_ts.iloc[self.daily_ts.index.isin([date]), gid].values.flatten()
+        if len(data) == 0:
+            raise ValueError('The requested date ({0}) is not in the dataset.'.format(date))
+
+        if 'color' not in kwargs and 'c' not in kwargs:
+            kwargs['color'] = 'k'
+        if 'linestyle' not in kwargs and 'ls' not in kwargs:
+            kwargs['linestyle'] = '-'
+
+        lh = ax.plot(data, depths, marker='.', markersize=7, **kwargs)
+
+        lh[0].tag = 'gt'
+
+        ax.axvline(x=0, linestyle=':', color='k')
+        ylim = plt.get(ax, 'ylim')
+        ax.set_ylim(ymax=min(ylim), ymin=max(ylim))
+
+        if xlim is not None:
+            ax.set_xlim(xlim)
+
+        ax.get_xaxis().tick_top()
+        ax.set_xlabel('Temperature [$^\circ$C]', fontsize=fs)
+        ax.get_xaxis().set_label_position('top')
+        ax.set_ylabel('Depth [m]', fontsize=fs)
+
+        plt.xticks(fontsize=fs)
+        plt.yticks(fontsize=fs)
+
+        if annotations:
+            t1h = ax.text(0.95, 0.10, self.name, horizontalalignment='right', \
+                          verticalalignment='bottom', transform=ax.transAxes, fontsize=fs)
+            t1h.tag = 'name'
+
+            t2h = ax.text(0.95, 0.05, date, horizontalalignment='right', verticalalignment='bottom',
+                          transform=ax.transAxes, fontsize=fs)
+            t2h.tag = 'date'
+
+        if show:
+            plt.show(block=False)
+
+        return ax
+
+
+
+    def plot_trumpet(self, fullts=False, lim=None, end_date=None, args=None,
+                     nyears=None, plotMeanGT=True, fs=12, ignore_mask=False,
+                     depths='all', **kwargs):
+        """
+        Method to plot trumpet curve for specific time interval (usually 1 year)
+        given by the date-range specified using the argument 'lim', or arguments 'end_date' and 'nyears'
 
         Call signature:
         plot_trumpet(self,fullts=False,lim=None,args=None)
@@ -1898,19 +1063,17 @@ class borehole:
             plot that element (e.g. grid = None)
         """
 
-        # pdb.set_trace()
-
         defaultargs = dict(
             plotMeanGT=plotMeanGT,
             maxGT=dict(
                 linestyle='-',
-                color='k',
+                color='r',
                 marker='.',
                 markersize=7,
                 zorder=5),
             minGT=dict(
                 linestyle='-',
-                color='k',
+                color='b',
                 marker='.',
                 markersize=7,
                 zorder=5),
@@ -1957,18 +1120,33 @@ class borehole:
         if not args.has_key('grid'):
             args['grid'] = defaultargs['grid']
 
-        if lim is None and nyears is not None:
-            if end is None:
-                end = self.daily_ts.times[-1]
-                if fullts:
-                    print "plot end date is based on daily_ts not fullts"
-            lim = nyears2lim(end, nyears)
+        if kwargs.has_key('axes'):
+            ax = kwargs.pop('axes')
+        elif kwargs.has_key('Axes'):
+            ax = kwargs.pop('Axes')
+        elif kwargs.has_key('ax'):
+            ax = kwargs.pop('ax')
+        else:
+            fh = plt.figure()
+            ax = plt.axes()
+
+        if not fullts:
+            if self.daily_ts is None:
+                self.calc_daily_average()
+
+            if lim is None and nyears is not None:
+                if end_date is None:
+                    end_date = self.daily_ts.index[-1]
+                lim = nyears2lim(end_date, nyears)
+        else:
+            raise NotImplementedError('Trumpet plotting based on full timeseries not implemented!')
+            # TODO: Implement trumpet plotting based on full time series
 
         # prepare to filter on depths
-        depth_arr = self.depths
+        depth_arr = self.sensor_depths
 
         if (depths is None) or (type(depths) == str and depths.lower() == 'all'):
-            depths = self.depths
+            depths = self.sensor_depths[self.sensor_depths >= 0]
 
         if not hasattr(depths, '__iter__'):
             depths = [depths]
@@ -1978,62 +1156,51 @@ class borehole:
         # get minimum values within time limits
         minGT = self.get_MinGT(lim, fullts, ignore_mask=ignore_mask)
         # remove any missing depths (NaN's)
-        maxGT = maxGT[np.logical_not(np.isnan(maxGT['value']))]
-        minGT = minGT[np.logical_not(np.isnan(minGT['value']))]
 
-        # remove values above ground (z-axis is positive downwards)
-        maxGT = maxGT[maxGT['depth'] >= 0]
-        minGT = minGT[minGT['depth'] >= 0]
-
-        if kwargs.has_key('axes'):
-            ax = kwargs.pop('axes')
-        elif kwargs.has_key('Axes'):
-            ax = kwargs.pop('Axes')
-        elif kwargs.has_key('ax'):
-            ax = kwargs.pop('ax')
-        else:
-            fh = pylab.figure()
-            ax = pylab.axes()
+        maxGT = maxGT[maxGT.notna()]
+        minGT = minGT[minGT.notna()]
 
         # convert depths to column indices
-        did = get_indices(maxGT['depth'], depths)
+        maxGT_depths = maxGT.index.get_level_values('CoordZ')
+        did = get_indices(maxGT_depths, depths)
         did = [i for i in did if not np.isnan(i)]  # remove nan values
+        ax.plot(maxGT[did], maxGT_depths[did], **args['maxGT'])
 
-        ax.plot(maxGT['value'][did], maxGT['depth'][did], **args['maxGT'])  # ,'-k',marker='.', markersize=7,**kwargs)
-        ax.hold(True)
-        ax.plot(minGT['value'][did], minGT['depth'][did], **args['minGT'])  # ,'-k',marker='.', markersize=7,**kwargs)
+        minGT_depths = minGT.index.get_level_values('CoordZ')
+        did = get_indices(minGT_depths, depths)
+        did = [i for i in did if not np.isnan(i)]  # remove nan values
+        ax.plot(minGT[did], minGT_depths[did], **args['minGT'])
 
-        if args.has_key('fill') and args['fill'] is not None:
-            # fclr = kwargs.pop('fill')
-            # if type(fclr) != str and fclr != False:
-            #    fclr = '0.7'
-            thisX = np.append(maxGT['value'][did], minGT['value'][did][::-1])
-            thisY = np.append(maxGT['depth'][did], minGT['depth'][did][::-1])
-            ax.fill(thisX, thisY, **args['fill'])  # facecolor=fclr,edgecolor='none')
+        # ax.plot(maxGT[did], maxGT['depth'][did], **args['maxGT'])  # ,'-k',marker='.', markersize=7,**kwargs)
+        # ax.plot(minGT[did], minGT['depth'][did], **args['minGT'])  # ,'-k',marker='.', markersize=7,**kwargs)
 
-        ylim = pylab.get(ax, 'ylim')
+        # TODO: Implement fill between max and min GT in trumpet
+        # if args.has_key('fill') and args['fill'] is not None:
+        #     thisX = np.append(maxGT['value'][did], minGT['value'][did][::-1])
+        #     thisY = np.append(maxGT['depth'][did], minGT['depth'][did][::-1])
+        #     ax.fill(thisX, thisY, **args['fill'])  # facecolor=fclr,edgecolor='none')
+
+        ylim = plt.get(ax, 'ylim')
         ax.set_ylim(ymax=min(ylim), ymin=max(ylim))
-        # pylab.setp(ax, ylim=ylim[::-1])
-        # ax.grid(True)
 
         if args.has_key('vline') and args['vline'] is not None:
-            ax.axvline(x=0, **args['vline'])  # linestyle='--', color='k')
+            ax.axvline(x=0, **args['vline'])
 
         if args.has_key('plotMeanGT') and args['plotMeanGT']:
             # get maximum values within time limits
-            MeanGT = self.get_MeanGT(lim=lim, fullts=fullts, ignore_mask=ignore_mask)
+            meanGT = self.get_MeanGT(lim=lim, fullts=fullts, ignore_mask=ignore_mask)
 
             # remove any missing depths (NaN's)
-            MeanGT = MeanGT[np.logical_not(np.isnan(MeanGT['value']))]
+            maxGT = meanGT[meanGT.notna()]
 
             # remove values above ground (z-axis is positive downwards)
-            MeanGT = MeanGT[MeanGT['depth'] >= 0]
+            meanGT = meanGT[meanGT.index.get_level_values('CoordZ') >= 0]
 
             # convert depths to column indices
-            did = get_indices(MeanGT['depth'], depths)
+            meanGT_depths = meanGT.index.get_level_values('CoordZ')
+            did = get_indices(meanGT_depths, depths)
             did = [i for i in did if not np.isnan(i)]  # remove nan values
-
-            ax.plot(MeanGT['value'][did], MeanGT['depth'][did], **args['MeanGT'])  # '-k',marker='.', markersize=7)
+            ax.plot(meanGT[did], meanGT_depths[did], **args['MeanGT'])
 
         if args.has_key('grid') and args['grid'] is not None:
             ax.grid(True, **args['grid'])
@@ -2043,184 +1210,36 @@ class borehole:
         ax.get_xaxis().set_label_position('top')
         ax.set_ylabel('Depth [m]', fontsize=fs)
 
-        pylab.xticks(fontsize=fs)
-        pylab.yticks(fontsize=fs)
+        plt.xticks(fontsize=fs)
+        plt.yticks(fontsize=fs)
 
         if args['title'] is not None:
-            ax.text(0.95, 0.05, args['title'], horizontalalignment='right', \
-                    verticalalignment='bottom', transform=ax.transAxes, fontsize=fs)
-            # ax.set_title(args['title'])
+            ax.text(0.95, 0.05, args['title'], verticalalignment='bottom',
+                    horizontalalignment='right', transform=ax.transAxes, fontsize=fs)
 
-        #pylab.show(block=False)
         ax.lim = lim
         return ax
 
-    def plot_date(self, date, annotations=True, fs=12, **kwargs):
-        if kwargs.has_key('axes'):
-            ax = kwargs.pop('axes')
-        elif kwargs.has_key('Axes'):
-            ax = kwargs.pop('Axes')
-        elif kwargs.has_key('ax'):
-            ax = kwargs.pop('ax')
-        else:
-            fh = pylab.figure()
-            ax = pylab.axes()
+    def plot_surf(self, depths=None, ignore_mask=False, fullts=False, legend=True,
+                  annotations=True, lim=None, figsize=(15, 6),
+                  cmap=plt.cm.bwr, show_sensors=True, cax=None,
+                  cont_levels=[0], **kwargs):
+        """Method to plot surface plot of daily time series data.
 
-        # hstate = ax.ishold()
-
-        id = find(self.daily_ts.times == date)
-
-        if len(id) == 0:
-            print "Date " + date.__str__() + "does not exist in data set"
-            print "(This function accepts only a datetime.date object)"
-            return False
-
-        gid = find(np.array(self.depths) >= 0.)
-        depths = np.take(self.depths, gid)
-        data = self.daily_ts.data[id, gid].flatten()
-
-        if 'color' not in kwargs:
-            lh = ax.plot(data, depths, '-k', marker='.', markersize=7, **kwargs)
-        else:
-            lh = ax.plot(data, depths, '-', marker='.', markersize=7, **kwargs)
-
-        lh[0].tag = 'gt'
-
-        ax.axvline(x=0, linestyle=':', color='k')
-        ylim = pylab.get(ax, 'ylim')
-        ax.set_ylim(ymax=min(ylim), ymin=max(ylim))
-
-        ax.get_xaxis().tick_top()
-        ax.set_xlabel('Temperature [$^\circ$C]', fontsize=fs)
-        ax.get_xaxis().set_label_position('top')
-        ax.set_ylabel('Depth [m]', fontsize=fs)
-
-        pylab.xticks(fontsize=fs)
-        pylab.yticks(fontsize=fs)
-
-        if annotations:
-            t1h = ax.text(0.95, 0.10, self.name, horizontalalignment='right', \
-                          verticalalignment='bottom', transform=ax.transAxes, fontsize=fs)
-            t1h.tag = 'name'
-
-            t2h = ax.text(0.95, 0.05, date, horizontalalignment='right', verticalalignment='bottom',
-                          transform=ax.transAxes, fontsize=fs)
-            t2h.tag = 'date'
-
-        pylab.show(block=False)
-        return ax
-
-    # --- Problem in plot routine when plotting SIS2007-02... WHY?? --------
-    # --- Problem apparently solved ?!
-
-    def plot(self, depths=None, plotmasked=False, fullts=False, legend=True,
-             annotations=True, lim=None, **kwargs):
-        if kwargs.has_key('axes'):
-            ax = kwargs.pop('axes')
-        elif kwargs.has_key('Axes'):
-            ax = kwargs.pop('Axes')
-        elif kwargs.has_key('ax'):
-            ax = kwargs.pop('ax')
-        else:
-            fh = pylab.figure()
-            ax = pylab.axes()
-
-        fh = ax.figure
-
-        hstate = ax.ishold()
-
-        # Flag to toggle wether full timeseries from the loggers is used or
-        # the averaged daily timeseries.
-        if not fullts:
-            if self.daily_ts is None:
-                self.calc_daily_avg()
-
-            depth_arr = self.depths
-
-            if (depths is None) or (type(depths) == str and depths.lower() == 'all'):
-                depths = self.depths
-
-            if not hasattr(depths, '__iter__'):
-                depths = [depths]
-
-            # following line is necessary in order for mpl not to connect
-            # the points by a straight line.
-            self.daily_ts.fill_missing_steps(tolerance=2)
-
-            # pdb.set_trace()
-
-            for cid, d in enumerate(depth_arr):
-                if d in depths:
-
-                    # get copies of the data and times
-                    data = self.daily_ts.limit(lim).data[:, cid].copy()
-                    times = self.daily_ts.limit(lim).times.copy()
-
-                    ax.hold(hstate)
-
-                    # Option to plot also the masked data points, but keeping
-                    # a mask on anything that could not be a real temperature.
-                    if plotmasked:
-                        mask = np.zeros(data.shape, dtype=bool)
-                        mask = np.where(data < -273.15, True, False)
-                        data.mask = mask
-                    if any(data.mask == False):
-                        lh = ax.plot_date(times, data, '-', label="%.2f m" % d, picker=5, **kwargs)
-                        lh[0].tag = 'dataseries'
-
-                        hstate = True
-        else:
-            depth_arr = self.get_depths(return_indices=True)
-
-            if (depths is None) or (type(depths) == str and depths.lower() == 'all'):
-                depths = depth_arr['depth']
-
-            for d, lid, cid in depth_arr:
-                if d in depths:
-                    # following line is necessary in order for mpl not to connect
-                    # the points by a straight line.
-                    self.loggers[lid].timeseries.fill_missing_steps(tolerance=2)
-
-                    # get copies of the data and times
-                    data = self.loggers[lid].timeseries.data[:, cid].copy()
-                    times = self.loggers[lid].timeseries.times.copy()
-
-                    ax.hold(hstate)
-
-                    # Option to plot also the masked data points, but keeping
-                    # a mask on anything that could not be a real temperature.
-                    if plotmasked:
-                        mask = np.zeros(data.shape, dtype=bool)
-                        mask = np.where(data < -273.15, True, False)
-                        data.mask = mask
-                    lh = ax.plot_date(times, data, '-', label="%.2f m" % d, picker=5, **kwargs)
-                    lh[0].tag = 'dataseries'
-                    hstate = True
-        # end if
-
-        if legend:
-            ax.legend(loc='best')
-
-        if annotations:
-            if ax.get_title() == '':
-                ax.set_title(self.name)
-            else:
-                ax.set_title(ax.get_title() + ' + ' + self.name)
-
-            ax.set_ylabel('Temperature [$^\circ$C]')
-            ax.set_xlabel('Time')
-
-        # fh.canvas.mpl_connect('pick_event', onpick)
-
-        fh.axcallbacks = zoom_span.AxesCallbacks(ax)
-
-        pylab.show(block=False)
-
-        return pylab.gca()
-
-    def plot_ALT(self, fullts=False, legend=True,
-                 annotations=True, lim=None, figsize=(15, 6),
-                 label=None, year_base=5, **kwargs):
+        :param depths:
+        :param ignore_mask:
+        :param fullts:
+        :param legend:
+        :param annotations:
+        :param lim:
+        :param figsize:
+        :param cmap:
+        :param show_sensors:
+        :param cax:
+        :param cont_levels:
+        :param kwargs:
+        :return:
+        """
 
         figBG = 'w'  # the figure background color
         axesBG = '#ffffff'  # the axies background color
@@ -2228,6 +1247,8 @@ class borehole:
         left, width = 0.1, 0.8
         rect1 = [left, 0.2, width, 0.6]  # left, bottom, width, height
 
+        fh = None
+
         if kwargs.has_key('axes'):
             ax = kwargs.pop('axes')
         elif kwargs.has_key('Axes'):
@@ -2235,41 +1256,106 @@ class borehole:
         elif kwargs.has_key('ax'):
             ax = kwargs.pop('ax')
         else:
-            fh = pylab.figure(figsize=figsize, facecolor=figBG)
-            ax = pylab.axes(rect1, axisbg=axesBG)
+            fh = plt.figure(figsize=figsize, facecolor=figBG)
+            ax = plt.axes(rect1)
+            ax.set_facecolor(axesBG)
 
-        fh = ax.figure
-
-        hstate = ax.ishold()
+        if fh is None:
+            fh = ax.get_figure()
 
         # Flag to toggle wether full timeseries from the loggers is used or
         # the averaged daily timeseries.
         if not fullts:
             if self.daily_ts is None:
-                self.calc_daily_avg()
+                self.calc_daily_average()
 
-            (Yr, maxdepth, thaw_depth_p, thaw_depth_n, ALT_date) = \
-                self.calc_ALT(lim=lim, fullts=False, silent=False)
+            if lim is None:
+                lim = [self.daily_ts.index[0], self.daily_ts.index[-1]]
+            else:
+                lim = fix_lim(lim)
 
-            dates = np.array([dt.date(y, 1, 1) for y in Yr])
-            # dates = np.append(dates, dt.date(dates[-1].year,12,31))
-            # maxdepth = np.append(maxdepth,maxdepth[-1])
-            # ds = 'steps-post'
+            if (depths is None) or (type(depths) == str and depths.lower() == 'all'):
+                depths = list(np.array(self.sensor_depths)[np.array(self.sensor_depths) >= 0])
 
-            ds = 'default'
+            if not hasattr(depths, '__iter__'):
+                depths = [depths]
 
-            ax.plot(dates, maxdepth, drawstyle=ds, label=label, **kwargs)
-            ax.hold(hstate)
+            # convert depths to column indices
+            did = get_indices(self.sensor_depths, depths)
 
-            ax.xaxis.set_major_locator(mpl.dates.YearLocator(base=year_base))
+            # following line is necessary in order for mpl not to connect
+            # the points by a straight line.
+
+            # get copies of the data and times
+            # TODO: Reconsider way to handle getting only ground temperatures
+            data = self.daily_ts[lim[0]:lim[1]].iloc[:, did].values
+            ordinals = map(dt.datetime.toordinal, self.daily_ts[lim[0]:lim[1]].index)
+            #depths = self.daily_ts.columns.get_level_values('CoordZ')[did]
+            #depths = depths[depths >= 0]
+            depths = np.array(depths)
+            sensor_depths = depths
+
+            # Handle masked (NaN) values by interpolating 1-dimensionally along depth axis
+            # ... if a point exists both above and below the missing point(s)
+            
+            # first convert to dataframe, as there is a nice 
+            # convenience function for interpolation along columns
+            df = pd.DataFrame(data, columns=depths)
+            df2 = pd.DataFrame(data, columns=depths)
+            
+            # insert additional depths, node points midway between each sensor
+            new_depths = depths[0:-1] + np.diff(depths)/2
+            
+            # add new columns with NaN values
+            for d in new_depths:
+                df[d] = np.NaN
+            df = df.reindex(sorted(df.columns), axis=1)  # reindex to make sure columns are in ascending depth order
+            
+            # Then do the interpolation inplace on the dataframe
+            # and interpolate only points surrounded by valid data.
+            df.interpolate(method='linear', axis=1, limit_area='inside', inplace=True)
+
+            # Now reintroduce the original NaNs
+            for c in df2.columns:
+                df[c] = df2[c]
+            
+            # Make backup of data, and reasign the interpolated data
+            data_bak = data
+            depths_bak = depths
+            data = df.values
+            depths = np.array(df.columns)
+            
+            
+            
+            # Find the maximum and minimum temperatures, and round up/down
+            mxn = np.nanmax(np.abs([np.floor(np.nanmin(data)),
+                                    np.ceil(np.nanmax(data))]))
+            levels = np.arange(-mxn, mxn + 1)
+            
+            xx, yy = np.meshgrid(ordinals, depths)
+
+            cf = ax.contourf(xx, yy, data.T, levels, cmap=cmap)
+
+            if cont_levels is not None:
+                ct = ax.contour(xx, yy, data.T, cont_levels, colors='k')
+                cl = ax.clabel(ct, cont_levels, inline=True, fmt='%1.1f $^\circ$C', fontsize=8, colors='k')
+
+            if show_sensors:
+                xlim = ax.get_xlim()
+                ax.plot(np.ones_like(sensor_depths) * xlim[0] + 0.01 * np.diff(xlim), sensor_depths, 'ko', ms=3)
+
+            ax.invert_yaxis()
+            ax.xaxis_date()
+
+            cbax = plt.colorbar(cf, orientation='horizontal', ax=cax, shrink=1.0, aspect=30, fraction=0.05)
+            cbax.set_label('Temperature [$^\circ$C]')
             fh.autofmt_xdate()
         else:
             raise NotImplementedError('Full timeseries support not implemented!')
         # end if
 
-
-        if legend:
-            ax.legend(loc='best')
+        # if legend:
+        #     ax.legend(loc='best')
 
         if annotations:
             if ax.get_title() == '':
@@ -2277,1728 +1363,150 @@ class borehole:
             else:
                 ax.set_title(ax.get_title() + ' + ' + self.name)
 
-            ax.set_ylabel('ALT [m]')
-            ax.set_xlabel('Time [year]')
+            ax.set_ylabel('Depth [m]')
+            # ax.set_xlabel('Time [year]')
 
-        pylab.draw()
+        # plt.draw()
 
-        return pylab.gca()
-
-    def get_dates(self, datetype=None):
-        """
-        Returns a sorted (ascending) array of dates for which the borehole contains data.
-
-        datetype is a switch to indicate which dates are included in the list:
-
-        datetype='any':     The date array will contain all dates for which at least
-                               one datalogger has data for at least one channel.
-        datetype='all':     The date array will contain all dates for which all
-                               dataloggers have data for all channels.
-        datetype='masked':  The date array will contain all dates for which any
-                               datalogger has a masked or unmasked entry.
-        datetype='missing': The date array will contain all dates for which no
-                               datalogger has an entry (masked or unmasked).
-        """
-
-        dates = np.array([])
-        for lid, l in enumerate(self.loggers):
-            if datetype in [None, 'masked']:
-                times = l.timeseries.times.copy()
-                if l.timeseries.dt_type != dt.date:
-                    for did, d in enumerate(times): times[did] = d.date()
-                dates = np.append(dates, times)
-            else:
-                raise 'only the default behaviour (''masked'') has been implemented!'
-
-        return np.unique(dates)
-
-    def uncalibrate(self):
-        for l in self.loggers:
-            l.uncalibrate()
-
-        self.calc_daily_avg()
-
-    def calibrate(self):
-        for l in self.loggers:
-            l.calibrate()
-
-        self.calc_daily_avg()
-
-    def export(self, fname, delim=', '):
-        """
-        This method should take a filename as input and export the ground temperature data
-        from the borehole as a textfile.
-        """
-
-        daily_flag = True
-
-        if self.daily_ts is None:
-            self.calc_daily_avg(mindata=8)
-            daily_flag = False
-
-        mask = np.ma.getmaskarray(self.daily_ts.data)
-
-        fid = open(fname, 'w')
-        try:
-            fid.write('Borehole:\t%s\n' % self.name)
-            fid.write('Latitude:\t%s\n' % self.latitude)
-            fid.write('Longitude:\t%s\n' % self.longitude)
-            fid.write('Description:\t%s\n' % self.description)
-            fid.write('Depths:\n')
-
-            titles = '      Time'
-            for d in self.depths:
-                titles += '%s%7.2f' % (delim, d)
-            fid.write(titles + '\n')
-            fid.write('-' * len(titles) + '\n')
-
-            for rid, t in enumerate(self.daily_ts.times):
-                outstr = '%s' % t
-                for cid, e in enumerate(self.daily_ts.data[rid, :]):
-                    if mask[rid, cid]:
-                        outstr += delim + '    ---'
-                    else:
-                        outstr += '%s%7.2f' % (delim, e)
-                outstr += '\n'
-                fid.write(outstr)
-        finally:
-            fid.close()
-
-        if daily_flag == False:
-            self.daily_ts = None
-
-    def generate_climate_series(self, loggerid, channelid):
-        clim = ClimateData.climate_station(name=self.name, lat=self.latitude, lon=self.longitude)
-        paramsd = dict( \
-            station=self.name,
-            datatype='AT',
-            mtype=None)
-
-        clim.add_data( \
-            data=self.loggers[loggerid].timeseries.data[:, channelid], \
-            times=self.loggers[loggerid].timeseries.times, \
-            paramsd=paramsd)
-
-        return clim
-
-    def reduce_daily_ts_cols(self):
-        """Reduces daily_ts timeseries columns in the event that there are 
-        multiple columns associated with the same depths. This may occur if
-        a logger has been replaced, so that two different loggers (SN) have
-        recorded the same thermistor during different periods.
-        """
-        depths = np.unique(self.depths)
-
-        keep_col_ids = []
-
-        if len(depths) < len(self.depths):
-            for d in depths:
-                ids = find(self.depths == d)
-                keep_col_ids.append(ids[0])  # make sure we always keep one column
-                if len(ids) > 1:
-                    # there are several columns for this depth... join them!
-                    for col_id in ids[1:]:
-                        # copy only unmasked data
-                        copy_rows = np.logical_not(self.daily_ts.data.mask[:, col_id])
-                        self.daily_ts.data[copy_rows, ids[0]] = self.daily_ts.data[copy_rows, col_id]
-
-        # now keep only the first column for each depth
-        self.daily_ts.data = self.daily_ts.data[:, keep_col_ids]
-        self.depths = depths
+        return plt.gca()
 
 
-def float_eq(alike, val, atol=1e-8, rtol=1e-5):
-    """makes a float comparison allowing for round off errors to within the
-    speciefied absolute and relative tolerances
+def split_year_date_lists(start='1960-08-01', end=dt.date.today(), month=8, day=1):
+    """Calculates lists of start and end dates of year slices, specified by 'start' and 'end' arguments,
+    and splitting on the date specified by the 'month' and 'day' arguments.
+    The first start date in the list may be before the specified start date, while the first end date
+    will be always be after the specified start date.
+    The last start date will always be before the specified end date, while
 
+
+    :param start:
+    :param end:
+    :param month:
+    :param day:
+    :return:
     """
 
-    return np.abs(np.array(alike) - val) <= (atol + rtol * np.abs(val))
+    lim = fix_lim([start, end])
 
+    # We want have the first split year encompas the specified start date
+    # Thus, if the start date is before ????-month-day, go one year back
 
-def get_indices(alike1, alike2, float_comp=True, atol=1e-8, rtol=1e-5):
-    """Finds the indices of the values in alike2 as they occur in alike1.
-    If a value from alike2 does not occur in alike1, the index will be a np.NaN
-    value.
+    if lim[0] < dt.date(lim[0].year, month, day):
+        lim[0] = lim[0].replace(year=lim[0].year-1)
 
-    """
+    # We want the last split year to encompas the specified end date
+    # Thus, if the end date is after ????-month-day minus 1 day, add an extra year
 
-    idx = [np.NaN for a in alike2]
+    if lim[1] > dt.date(lim[1].year, month, day)-dt.timedelta(days=1):
+        lim[1] = lim[1].replace(year=lim[1].year + 1)
 
-    if float_comp:
-        for idv, val in enumerate(alike2):
-            id = np.nonzero(float_eq(alike1, val, atol, rtol))[0]
-            if len(id) > 0:
-                idx[idv] = id[0]
+    # Create list of start dates (XXXX-08-01) from first year of measurements to the current year
+    sdate = [dt.date(yr, month, day) for yr in range(lim[0].year, lim[1].year)]
+    edate = [dt.date(yr, month, day)-dt.timedelta(days=1) for yr in range(lim[0].year+1, lim[1].year+1)]
 
-        return idx
+    return sdate, edate
 
-        # return [float_eq(alike1, val, atol, rtol) for val in alike2]
-    else:
-        raise NotImplementedError
 
 
-def plot_surf(bh, depths=None, ignore_mask=False, fullts=False, legend=True,
-              annotations=True, lim=None, figsize=(15, 6),
-              cmap=plt.cm.bwr, sensor_depths=True, cax=None,
-              cont_levels=[0], **kwargs):
-    # To allow for easy integration into the borehole class at later stage
-    self = bh
-
-    figBG = 'w'  # the figure background color
-    axesBG = '#ffffff'  # the axies background color
-    textsize = 8  # size for axes text
-    left, width = 0.1, 0.8
-    rect1 = [left, 0.2, width, 0.6]  # left, bottom, width, height
-
-    fh = None
-
-    if kwargs.has_key('axes'):
-        ax = kwargs.pop('axes')
-    elif kwargs.has_key('Axes'):
-        ax = kwargs.pop('Axes')
-    elif kwargs.has_key('ax'):
-        ax = kwargs.pop('ax')
-    else:
-        fh = pylab.figure(figsize=figsize, facecolor=figBG)
-        ax = pylab.axes(rect1)
-        ax.set_facecolor(axesBG)
-
-    if fh is None:
-        fh = ax.get_figure()
-
-    hstate = ax.ishold()
-
-    # Flag to toggle wether full timeseries from the loggers is used or
-    # the averaged daily timeseries.
-    if not fullts:
-        if self.daily_ts is None:
-            self.calc_daily_avg()
-
-        depth_arr = self.depths
-
-        if (depths is None) or (type(depths) == str and depths.lower() == 'all'):
-            depths = list(np.array(self.depths)[np.array(self.depths) >= 0])
-
-        if not hasattr(depths, '__iter__'):
-            depths = [depths]
-
-        # convert depths to column indices
-        did = get_indices(self.depths, depths)
-
-        # following line is necessary in order for mpl not to connect
-        # the points by a straight line.
-        self.daily_ts.fill_missing_steps(tolerance=2)
-
-        # get copies of the data and times
-        data = self.daily_ts.limit(lim).data[:, did].copy()
-        ordinals = self.daily_ts.limit(lim).ordinals.copy()
-
-        if ignore_mask:
-            mask = np.zeros(data.shape, dtype=bool)
-            mask = np.where(data < -273.15, True, False)
-            data.mask = mask
-
-        # Find the maximum and minimum temperatures, and round up/down
-        mxn = np.max(np.abs([np.floor(data.min()),
-                             np.ceil(data.max())]))
-        levels = np.arange(-mxn, mxn + 1)
-
-        xx, yy = np.meshgrid(ordinals, depths)
-
-        cf = ax.contourf(xx, yy, data.T, levels, cmap=cmap)
-        ax.hold(True)
-        if cont_levels is not None:
-            ct = ax.contour(xx, yy, data.T, cont_levels, colors='k')
-            cl = ax.clabel(ct, cont_levels, inline=True, fmt='%1.1f $^\circ$C', fontsize=12, colors='k')
-
-        if sensor_depths:
-            xlim = ax.get_xlim()
-            ax.plot(np.ones_like(depths) * xlim[0] + 0.01 * np.diff(xlim), depths,
-                    'ko', ms=3)
-
-        ax.invert_yaxis()
-        ax.hold(hstate)
-        ax.xaxis_date()
-
-        cbax = plt.colorbar(cf, orientation='horizontal', ax=cax, shrink=1.0)
-        cbax.set_label('Temperature [$^\circ$C]')
-        fh.autofmt_xdate()
-    else:
-        raise NotImplementedError('Full timeseries support not implemented!')
-    # end if
-
-    if legend:
-        ax.legend(loc='best')
-
-    if annotations:
-        if ax.get_title() == '':
-            ax.set_title(self.name)
-        else:
-            ax.set_title(ax.get_title() + ' + ' + self.name)
-
-        ax.set_ylabel('Depth [m]')
-        # ax.set_xlabel('Time [year]')
-
-    #pylab.draw()
-
-    return pylab.gca()
-
-
-def plot_surf_trumpet(bh, depths=None, ignore_mask=False, fullts=False, legend=True,
-                      annotations=True, lim=None, figsize=(15, 6),
-                      cmap=plt.cm.bwr, sensor_depths=True,
-                      cont_levels=[0], **kwargs):
-    figBG = 'w'  # the figure background color
-    axesBG = '#ffffff'  # the axies background color
-    textsize = 8  # size for axes text
-    left, width = 0.1, 0.8
-    rect1 = [left, 0.2, width, 0.6]  # left, bottom, width, height
-
-    fh = plt.figure(figsize=figsize, facecolor=figBG)
-
-    ax1 = plt.subplot2grid((5, 4), (0, 0), colspan=3, rowspan=4, axisbg=axesBG)
-    ax2 = plt.subplot2grid((5, 4), (0, 3), rowspan=4, axisbg=axesBG)
-    ax1.get_shared_y_axes().join(ax1, ax1)
-    ax3 = plt.subplot2grid((5, 4), (4, 0), colspan=3, axisbg=axesBG)
-
-    plot_surf(bh, depths=depths, ignore_mask=ignore_mask, fullts=False,
-              legend=legend, annotations=annotations, lim=lim,
-              cmap=cmap, sensor_depths=sensor_depths, ax=ax1, cax=ax3,
-              cont_levels=cont_levels)
-    bh.plot_trumpet(ax=ax2, ignore_mask=ignore_mask, fullts=fullts, depths=depths,
-                    nyears=1)
-
-    ax3.set_visible(False)
-
-    ax2.set_ylim(ax1.get_ylim())
-    ax2.set_ylabel('')
-
-
-def read_boreholes(path=basepath, walk=True, bholes=None, calc_daily=True, \
-                   names=None, auto_process=True, read_pkl=True,
-                   name_contains_str=None, name_starts_with=None):
-    """
-    bholes = read_boreholes(path=basepath,walk=True, bholes=None, calc_daily=True, names=None)
-
-    Import borehole information into dictionary bholes.
-
-    input parameters:
-    path:        Directory from which to import. Defaults to basepath, defined
-                    on module level.
-    walk:        Travers subdirectories if True (Default)
-    bholes:      Optional existing dictionary to append with borehole information
-    calc_daily:  Calculate daily timeseries if True (Default)
-    names:       List of boreholes to import. Borehole names must mach entries
-                    in this list in order to be imported (exact match).
-    read_pkl:    If False, will read ascii files only
-                 If True will read pickled file if available,
-                   otherwise ascii files (default)
-                 If "only", will read only pickled files
-    name_contains_str: Borehole will be read if borehole name contains the
-                   string passed
-    name_contains_str: Borehole will be read if borehole name contains the
-                   string passed
-    name_starts_with: Borehole will be read if borehole name starts with the
-                   string passed
-    """
-
-    # ..........................................................................
-    def process_files(bholes, dr, flst):
-
-        entries_to_skip = list()
-        # First create borehole entries for any .bor file in the directory
-        # and find entries in the list that should be removed
-
-        if bholes['read_pkl'] in [True, 'only', 'Only']:
-            read_pkl = True
-        else:
-            read_pkl = False
-
-        if bholes['read_pkl'] in [True, False]:
-            read_ascii = True
-        else:
-            read_ascii = False
-
-        #        print "looking for pickled boreholes..."
-        for id, f in enumerate(flst):
-            tmphole = None
-            f2 = f.lower()
-            # Is it a pickled file? ...
-            if f2.endswith('.pkl') and read_pkl:
-                # print f2
-                try:
-                    with open(os.path.join(dr, f), 'rb') as pklfh:
-                        tmphole = pickle.load(pklfh)
-                except:
-                    print "Could not read file: {0}".format(os.path.join(dr, f))
-                    tmphole = None
-
-                if isinstance(tmphole, borehole):
-                    # Here we should test for the following:
-                    # 1) Is bholes['read_all'] == True?
-                    # 2) Does the name start with bholes['starts_with']?
-                    # 3) Does the name contain bholes['contains']?
-                    # 4) Is the name mentioned in the bholes['names'] list?
-                    if bholes['read_all'] or \
-                            (bholes['names'] is not None and tmphole.name in bholes['names']) or \
-                            (bholes['starts_with'] is not None and tmphole.name.startswith(bholes['starts_with'])) or \
-                            (bholes['contains'] is not None and bholes['contains'] in tmphole.name):
-                        bholes[tmphole.name] = tmphole
-                        bholes['pkl_names'].append(tmphole.name)
-                        print '\n**************************************************************\n'
-                        print 'Borehole ' + tmphole.name + ' created from pickled file: ' + dr
-                    else:
-                        print 'Borehole ' + tmphole.name + ' found but not added.'
-
-                    #        print "looking for bor files..."
-        for id, f in enumerate(flst):
-            f2 = f.lower()
-            # ...or is it a borehole definition file?
-            if f2.endswith('.bor') and read_ascii:
-                tmphole = borehole(fname=os.path.join(dr, f))
-                if bholes['read_all'] or \
-                        (bholes['names'] is not None and tmphole.name in bholes['names']) or \
-                        (bholes['starts_with'] is not None and tmphole.name.startswith(bholes['starts_with'])) or \
-                                (bholes['contains'] is not None and bholes['contains'] in tmphole.name) and \
-                                not tmphole.name in bholes:
-                    bholes[tmphole.name] = tmphole
-                    print '\n**************************************************************\n'
-                    print 'Borehole ' + tmphole.name + ' created from: ' + dr
-
-            # ...or is it a directory with certain names
-            elif os.path.isdir(os.path.join(dr, f)) and \
-                    ((f2.find('corrupt') >= 0) or \
-                             (f2.find('raw') >= 0) or \
-                             (f2.find('calib') >= 0) or \
-                             (f2.find('exclude') >= 0) or \
-                             (f2.find('info') >= 0)):
-                # If f is a directory, and the name contains either
-                # 'corrupt', 'raw' or 'calibration'
-                # add the index to the list of entries to remove from the
-                # tree to walk.
-                entries_to_skip.append(id)
-            # ... or is it a corrupt file?
-            elif f2.find('corrupt') >= 0 or \
-                            f2.find('exclude') >= 0:
-                # add the index to the list of entries to remove from the
-                # tree to walk.
-                entries_to_skip.append(id)
-
-        if not entries_to_skip == []:
-            # Remove the entries from the file list:
-            for id in reversed(sorted(entries_to_skip)):
-                del flst[id]
-
-        # Then load data into the boreholes
-        for f in flst:
-            f2 = f.lower()
-            if (f2.endswith(('.csv', '.txt', '.dat'))) and read_ascii:
-                # if "SIS2007-02" in dr:
-                #    print f
-                #    pdb.set_trace()
-                fullf = os.path.join(dr, f)
-                if os.path.islink(fullf): continue  # don't count linked files
-
-                paramsd, comments, hlines = get_property_info(fullf)
-                if 'borehole' in paramsd:
-                    if (bholes['read_all'] or \
-                                (bholes['names'] is not None and paramsd['borehole'] in bholes['names']) or \
-                                (bholes['starts_with'] is not None and paramsd['borehole'].startswith(
-                                    bholes['starts_with'])) or \
-                                (bholes['contains'] is not None and bholes['contains'] in paramsd['borehole'])) and \
-                                    paramsd['borehole'] not in bholes['pkl_names']:
-
-                        if paramsd['borehole'] in bholes.keys():
-                            stat = bholes[paramsd['borehole']].add_data(fullf, paramsd=paramsd, hlines=hlines)
-                            if stat:
-                                print f + " added to borehole " + paramsd['borehole']
-                            else:
-                                print "NB!" + f + " could not be added to borehole " + paramsd['borehole']
-                                pdb.set_trace()
-                        else:
-                            print "NB!" + f + " tries to reference non-exsisting " + \
-                                  "borehole " + paramsd['borehole']
-
-    # ..........................................................................
-
-    if type(path) in [list, tuple]:
-        # Concatenate path elements
-        path = os.path.join(*path)
-
-    if type(bholes) != dict:
-        bholes = dict()
-
-    existing_holes = bholes.keys()
-    bholes['names'] = names
-    bholes['read_pkl'] = read_pkl
-    bholes['pkl_names'] = []
-    bholes['contains'] = name_contains_str
-    bholes['starts_with'] = name_starts_with
-
-    if names is None and name_contains_str is None and name_starts_with is None:
-        bholes['read_all'] = True
-    else:
-        bholes['read_all'] = False
-
-    if not walk:
-        # Process only files in the current directory (path)
-        flst = os.listdir(path)
-        process_files(bholes, path, flst)
-    else:
-        # Process all files in the directory tree
-        os.path.walk(path, process_files, bholes)
-
-    pkl_names = bholes['pkl_names']
-    del bholes['names']
-    del bholes['read_pkl']
-    del bholes['pkl_names']
-    del bholes['contains']
-    del bholes['starts_with']
-    del bholes['read_all']
-
-    print '\n**************************************************************\n'
-
-    if auto_process:
-        changes = False
-        for bh in bholes:
-            if bh not in pkl_names and bh not in existing_holes:
-                bholes[bh].auto_process()
-                changes = True
-        if changes:
-            print '\n**************************************************************\n'
-
-    if calc_daily:
-        for bh in bholes:
-            if bh not in pkl_names and bh not in existing_holes:
-                print 'Calculating daily timeseries for borehole ' + bh
-                bholes[bh].calc_daily_avg()
-
-    return bholes
-
-
-def new_borehole(name=None, path=None, loggers=1):
-    """
-    new_borehole(name=None, path=basepath, loggers=1)
-
-    Set up directory and file-structure for a new borehole. Files will be set
-    up with borehole-name, and logger name, and possibly logger-type specific
-    information, if loggertype is provided.
-
-    input parameters:
-    name:        Name of new borehole (as well as directory if none given)
-    path:        Directory in which to create new files.
-                   If directory does not exist, it will be created
-                   If directory exist, no new directory will be created
-                   If path is not a full path it will be appended to the basepath
-
-    loggers:     Number of loggers in borehole (and number of files to write)
-                   or a list of logger types, with length = # of loggers
-
-    logger types are:
-    "tinytag"         data#, times, data colums, flag column (optional)
-    "hobo u12-008"    data#, times, data colums, Hobo event columns, flag column (optional)
-    "generic"         times, data colums, flag column (optional)
-
-    """
-
-    if name is None:
-        name = 'new_borehole'
-
-    if path is None:
-        # if path is not given, use basepath + borehole name
-        path = os.path.join(basepath, name)
-    elif type(path) in [list, tuple]:
-        # Concatenate path elements
-        path = os.path.join(*path)
-
-    if os.path.splitdrive(path)[0] == '':
-        # If path is not an absolute path, append to basepath
-        path = os.path.join(basepath, path)
-
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-    # Now write files
-
-    # Write borehole definition file
-    bor_name = '{0}'.format(name)
-    fullfile = os.path.join(path, bor_name + '.bor')
-    copy_id = 0
-    while os.path.exists(fullfile):
-        copy_id += 1
-        bor_name = '{0}_{1:03d}.bor'.format(name, copy_id)
-        fullfile = os.path.join(path, bor_name + '.bor')
-
-    bor_file = [
-        "Name:        %s" % (bor_name,),
-        "Date:        YYYY-MM-DD    # Date the borehoe was drilled",
-        "Latitude:    NN.NNNNN      # in decimal degrees (dd.dddd)",
-        "Longitude:   -EE.EEEEE     # in decimal degrees (dd.dddd)",
-        "Description: One line description."]
-
-    with open(fullfile, 'w') as f:
-        f.write("\n".join(bor_file))
-
-    # Write logger files
-
-    if type(loggers) not in [list, tuple]:
-        if type(loggers) == str:
-            loggers = [loggers]
-        else:
-            loggers = ['generic' for n in range(loggers)]
-
-    for id, ltype in enumerate(loggers):
-        if ltype.lower() == "tinytag":
-            # data#, times, data colums, flag column (optional)
-            logger_file = [
-                "Borehole:    {0}".format(bor_name),
-                "SN:          XXXXXXX                    # Logger serial number",
-                "Type:        TinyTag+12 -40/125 degC    # Type of logger",
-                "Channels:    2                          # Number of channels",
-                "tzinfo:      UTC-0X:00                  # Time zone setting of logger",
-                "Depth:       Z.ZZ, Z.ZZ                 # installation depth of sensors (in meters)",
-                "Calibration: X.XX, X.XX                 # Calibration values, T_true = T_data + cal",
-                "Heave:       0.000                      # heave of sensors since installation (in meters)",
-                "Description: One line description of borehole.",
-                "Separator:   ;                          # column separator in this file (defult is ,)",
-                "Decimal:     .                          # decimal symbol (default is .)",
-                "Flagcol:     4                          # column number of flag column (zero-based), default is last column",
-                "Columns:     id, time, temp, temp, flag",
-                "# *** THIS IS FOR 2-CHANNEL TinyTag Logger ***",
-                "#-------------------------------------------------------------------------------",
-                "1; 2000-01-01 12:00:00; 0,000; 0,000; m        # m = entire row is masked out. m[0,2] = data column 0 and 2 masked out",
-                "# When inserting data, check and possibly correct:",
-                "#  - decimal separator in file",
-                "#  - column separator in file",
-                "#  - columns match the column headers",
-                "#  - flag column specification"]
-        elif ltype.lower() == "hobo u12-008":
-            # data#, times, data colums, Hobo event columns, flag column (optional)
-            logger_file = [
-                "Borehole:    {0}".format(bor_name),
-                "SN:          XXXXXXX                    # Logger serial number",
-                "Type:        HOBO U12-008               # Type of logger",
-                "Channels:    4                          # Number of channels",
-                "tzinfo:      UTC-0X:00                  # Time zone setting of logger",
-                "Depth:       Z.ZZ, Z.ZZ, Z.ZZ, Z.ZZ     # installation depth of sensors (in meters)",
-                "Calibration: X.XX, X.XX, X.XX, X.XX     # Calibration values, T_true = T_data + cal",
-                "Heave:       0.000                      # heave of sensors since installation (in meters)",
-                "Description: One line description of borehole.",
-                "Separator:   ;                          # column separator in this file (defult is ,)",
-                "Decimal:     ,                          # decimal symbol (default is .)",
-                "Flagcol:     9                          # column number of flag column (zero-based)",
-                "columns:     id, time, temp, temp, temp, temp, batt V, Host connected, End of file, flag",
-                "#-------------------------------------------------------------------------------",
-                "1; 2000-01-01 12:00:00; 0,000; 0,000; 0,000; 0,000; 3,17; ; ; m        # m = entire row is masked out. m[0,2] = data column 0 and 2 masked out",
-                "# When inserting data, check and possibly correct:",
-                "#  - decimal separator in file",
-                "#  - column separator in file",
-                "#  - columns match the column headers",
-                "#  - flag column specification"]
-        elif ltype.lower() == "generic":
-            # times, data colums, flag column (optional)
-            logger_file = [
-                "Borehole:    {0}".format(bor_name),
-                "SN:          XXXXXXX                    # Logger serial number",
-                "Type:        Generic                    # Type of logger",
-                "Channels:    XX                         # Number of channels",
-                "tzinfo:      UTC-0X:00                  # Time zone setting of logger",
-                "Depth:       Z.ZZ, Z.ZZ, Z.ZZ, Z.ZZ     # installation depth of sensors (in meters)",
-                "Calibration: X.XX, X.XX, X.XX, X.XX     # Calibration values, T_true = T_data + cal",
-                "Heave:       0.000                      # heave of sensors since installation (in meters)",
-                "Description: One line description of borehole.",
-                "Separator:   ;                          # column separator in this file (defult is ,)",
-                "Decimal:     ,                          # decimal symbol (default is .)",
-                "Flagcol:     X                          # column number of flag column (zero-based), default is last column",
-                "Columns:     time, temp, temp, temp, temp, flag",
-                "#-------------------------------------------------------------------------------",
-                "2000-01-01 12:00:00; 0,000; 0,000; 0,000; 0,000; m        # m = entire row is masked out. m[0,2] = data column 0 and 2 masked out",
-                "# When inserting data, check and possibly correct:",
-                "#  - decimal separator in file",
-                "#  - column separator in file",
-                "#  - columns match the column headers",
-                "#  - flag column specification"]
-        else:
-            print "Unknown logger type: " + ltype
-            return False
-
-        fullfile = os.path.join(path, 'logger_{0:d}.txt'.format(id))
-        copy_id = 0
-        while os.path.exists(fullfile):
-            copy_id += 1
-            fullfile = os.path.join(path, 'logger_{0:d}_{1:03d}.txt'.format(id, copy_id))
-
-        with open(fullfile, 'w') as f:
-            f.write("\n".join(logger_file))
-
-        # Write borehole definition file
-        fullfile = os.path.join(path, 'auto_processing.py')
-
-        auto_processing_file = [
-            "def auto_process(bhole):",
-            "    associated_borehole = '{0}'".format(bor_name),
-            "    if bhole.name != associated_borehole:",
-            "        print 'This is not borehole {0}'.format(associated_borehole)",
-            "        print 'Wrong auto processing file!'",
-            "        print 'Nothing done...!'",
-            "        return",
-            "    print 'Auto processing borehole {0}'.format(bhole.name)",
-            "",
-            "    # You may mask certain channels:",
-            "    # bhole.mask_channels(logger_sn='XXXXXX',channels=[18,19,20,21])",
-            "    # print 'Channels were masked!'",
-            "    # logger_sn is optional if there is only one logger",
-            "",
-            "    # You may wish to uncalibrate the data, in case calibrations are bad:",
-            "    # bhole.uncalibrate()",
-            "    # print 'borehole calibration was removed!'",
-            "    # logger_sn is optional if there is only one logger",
-            "",
-            "    # Plot temperatures as function of time for all sensors:",
-            "    bhole.plot()",
-            "",
-            "    # Plot trumpet curve for entire time span of logger:",
-            "    bhole.plot_trumpet(title=None)",
-            "    # Use additional argument lim=['1968-01-01','1974-01-01'] to plot only",
-            "    # data from the specified interval, or use nyears=1, end='2010-01-01'",
-            "    # to plot data from one full year ending on 2010-01-01"]
-
-    with open(fullfile, 'w') as f:
-        f.write("\n".join(auto_processing_file))
-
-
-def pickle_all(bholes):
-    for name, bh in bholes.items():
-        bh.pickle()
-        print "Pickled borehole {0}".format(name)
-
-
-def combine_boreholes(bh1, bh2, drop_channels=None, calc_daily=True):
-    """
-    Combine boreholes bh1 and bh2 (borehole instances) into a new borehole.
-
-    drop_channels dictionary allows automatic deletion of certain channels of
-    certain loggers. The dictionary uses logger serialnumber as key and a list
-    of channel numbers as value. Example:
-
-    drop_channels = {'1104196': [1,2,3]}
-
-    will delete channels 1, 2 and 3 from the combined borehole (but leave the
-    original boreholes intact).
-    """
-
-    bh3 = copy.deepcopy(bh1)
-    for l in bh2.loggers:
-        bh3.loggers.append(copy.deepcopy(l))
-
-    if drop_channels is not None and type(drop_channels) == dict:
-        for sn, chns in drop_channels.items():
-            bh3.drop_channels(logger_sn=sn, channels=chns)
-
-    if calc_daily:
-        bh3.calc_daily_avg()
-
-    return bh3
-
-
-def filter_dict(adict, predicate=lambda k, v: True):
-    """
-    Function to select subset of keys in a dictionary.
-
-    Usage examples:
-
-    bh.filter_dict(bholes, lambda k, v: k not in ['SIS OBO Waterworks','SIS67036'])
-    bh.filter_dict(bholes, lambda k, v: not k.startswith('NUK'))
-    bh.filter_dict(bholes, lambda k, v: not k.startswith('ITI'))
-    """
-
-    def _filter(adict, predicate=lambda k, v: True):
-        for k, v in adict.items():
-            if predicate(k, v):
-                yield k, adict[k]
-
-    return dict(_filter(adict, predicate=predicate))
-
-
-def filter_bhole_dict(bholes, predicate=lambda k, v: True):
-    """
-    Function to select subset of borholes dictionary.
-
-    Usage examples:
-
-    bh.filter_bhole_dict(bholes, lambda k, v: k not in ['SIS OBO Waterworks','SIS67036'])
-    bh.filter_bhole_dict(bholes, lambda k, v: not k.startswith('NUK'))
-    bh.filter_bhole_dict(bholes, lambda k, v: not k.startswith('ITI'))
-    """
-    warnings.warn('filter_borehole_dict is replaced by filter_dict.', warnings.DeprecationWarning)
-    return filter_dict(bholes, predicate=predicate)
-
-
-# test_data = [{"key1":"value1", "key2":"value2"}, {"key1":"blabla"}, {"key1":"value1", "eh":"uh"}]
-# list(filter_data(test_data, lambda k, v: k == "key1" and v == "value1"))
-
-# --- ### Plotting routines ###
-
-def plot_grl_boreholes(resolution='i', corners=None, bholes=None, plotMeanGT=False):
-    if bholes is None:
-        bholes = read_boreholes(
-            os.path.join(basepath, 'Sisimiut', 'SIS2007-06_West_Palsa', 'SIS2007-06_West_Palsa_Shallow'),
-            calc_daily=False)
-        bholes = read_boreholes(
-            os.path.join(basepath, 'Sisimiut', 'SIS2007-06_West_Palsa', 'SIS2007-06a_West_Palsa_Deep'), bholes=bholes,
-            calc_daily=False)
-        bholes = read_boreholes(os.path.join(basepath, 'Ilulissat', 'ILU2007-01_78020'), bholes=bholes,
-                                calc_daily=False)
-        bholes = read_boreholes(os.path.join(basepath, 'Kangerlussuaq', 'KAN2005-01'), bholes=bholes, calc_daily=False)
-        bholes = read_boreholes(os.path.join(basepath, 'Nuuk', 'NUK04008-808'), bholes=bholes, calc_daily=True)
-
-    bholes['KAN2005-01'].uncalibrate()
-    bholes['KAN2005-01'].calc_daily_avg(mindata=8)
-
-    if 'SIS2007-06_combi' not in bholes:
-        bholes['SIS2007-06_combi'] = combine_boreholes(
-            bholes['SIS2007-06'],
-            bholes['SIS2007-06a'],
-            drop_channels={'1104196': [1, 2, 3]})
-
-        # bholes['SIS2007-06_combi'] = copy.deepcopy(bholes['SIS2007-06'])
-        # for l in bholes['SIS2007-06a'].loggers:
-        #    bholes['SIS2007-06_combi'].loggers.append(copy.deepcopy(l))
-        # bholes['SIS2007-06_combi'].drop_channels(logger_sn='1104196',channels=[1,2,3])
-        # bholes['SIS2007-06_combi'].calc_daily_avg()
-
-    figBG = 'w'
-    fh = plt.figure(figsize=(20., 10.2), facecolor=figBG)
-    fh.set_size_inches(20., 10.2, forward=True)
-    map_ax = plt.subplot(1, 3, 3)
-    ax1 = plt.subplot(2, 3, 1)
-    ax2 = plt.subplot(2, 3, 2)
-    ax3 = plt.subplot(2, 3, 4)
-    ax4 = plt.subplot(2, 3, 5)
-    plt.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=0.4, hspace=None)
-
-    if corners is None:
-        corners = [[-55.0, 63.0], [-46.0, 71.0]]
-    myEDC = mapping.maps.EDCbasemap(resolution=resolution, corners=corners, gdist=5.,
-                                    colors='nice', ax=map_ax)
-
-    mapping.plot.PlotIcecap(basemap=myEDC.map, ax=myEDC.ax)
-
-    print 'Drawing cities...'
-    myEDC.GreenlandCities = {
-        'Ilulissat': np.array((-51.100000, 69.216667)),
-        'Sisimiut': np.array((-53.669284, 66.933628)),
-        'Kangerlussuaq': np.array((-50.709167, 67.010556)),
-        'Nuuk': np.array((-51.742632, 64.170284))}
-
-    myEDC.boreholes = bholes
-
-    myEDC.plotPoints(np.array(myEDC.GreenlandCities.values())[:, 0],
-                     np.array(myEDC.GreenlandCities.values())[:, 1], 'or', ms=8,
-                     picker=8, names=myEDC.GreenlandCities.keys(), tag='cities')
-
-    x, y = myEDC.map(myEDC.GreenlandCities['Ilulissat'][0], myEDC.GreenlandCities['Ilulissat'][1])
-    map_ax.text(x, y, 'Ilulissat .', fontsize=14, fontweight='bold',
-                horizontalalignment='right', verticalalignment='top', zorder=100)
-    x, y = myEDC.map(myEDC.GreenlandCities['Sisimiut'][0], myEDC.GreenlandCities['Sisimiut'][1])
-    map_ax.text(x, y, '  Sisimiut', fontsize=14, fontweight='bold',
-                horizontalalignment='left', verticalalignment='bottom', zorder=100)
-    x, y = myEDC.map(myEDC.GreenlandCities['Kangerlussuaq'][0], myEDC.GreenlandCities['Kangerlussuaq'][1])
-    map_ax.text(x, y, '  Kangerlussuaq', fontsize=14, fontweight='bold',
-                horizontalalignment='left', verticalalignment='top', zorder=100)
-    x, y = myEDC.map(myEDC.GreenlandCities['Nuuk'][0], myEDC.GreenlandCities['Nuuk'][1])
-    map_ax.text(x, y, 'Nuuk .', fontsize=14, fontweight='bold',
-                horizontalalignment='right', verticalalignment='top', zorder=100)
-
-    print 'Plotting trumpets...'
-    bholes['KAN2005-01'].uncalibrate()  # Calibration for this borehole is not correct,
-    # and data should be presented uncalibrated.
-
-    print "Finished uncalibrating"
-
-    args = {'title': None}
-    # bholes['ILU2007-03'].plot_trumpet(lim=['2007-12-01','2009-12-01'],ax1)
-    bholes['ILU2007-01'].plot_trumpet(lim=['2007-01-01', '2009-12-31'],
-                                      ax=ax1, plotMeanGT=plotMeanGT, args=args)
-    print "plotted first trumpet"
-    bholes['SIS2007-06_combi'].plot_trumpet(lim=['2008-01-01', '2009-12-31'],
-                                            ax=ax2, plotMeanGT=plotMeanGT, args=args)
-    bholes['KAN2005-01'].plot_trumpet(lim=['2007-01-01', '2009-12-31'],
-                                      ax=ax3, plotMeanGT=plotMeanGT, args=args)
-    bholes['NUK04008-808a+b'].plot_trumpet(lim=['2007-01-01', '2009-12-31'],
-                                           ax=ax4, plotMeanGT=plotMeanGT,
-                                           args=args)  # ,lim=['2007-01-01','2009-12-01'])
-
-    ax1.text(0.95, 0.05, 'Ilulissat\nILU2007-01', horizontalalignment='right', verticalalignment='bottom',
-             transform=ax1.transAxes)
-    ax2.text(0.95, 0.05, 'Sisimiut\nSIS2007-06\nSIS2007-06a', horizontalalignment='right', verticalalignment='bottom',
-             transform=ax2.transAxes)
-    ax3.text(0.95, 0.05, 'Kangerlussuaq\nKAN2005-01', horizontalalignment='right', verticalalignment='bottom',
-             transform=ax3.transAxes)
-    ax4.text(0.95, 0.05, 'Nuuk\nNUK04008-808a+b', horizontalalignment='right', verticalalignment='bottom',
-             transform=ax4.transAxes)
-
-    ax1.set_title('')
-    ax2.set_title('')
-    ax3.set_title('')
-    ax4.set_title('')
-    map_ax.set_title('')
-
-    ax1.set_xlim([-30, 30])
-    ax2.set_xlim([-30, 30])
-    ax3.set_xlim([-30, 30])
-    ax4.set_xlim([-30, 30])
-
-    ax1.set_ylim([7, 0])
-    ax2.set_ylim([7, 0])
-    ax3.set_ylim([7, 0])
-    ax4.set_ylim([7, 0])
-
-    plt.draw()
-    plt.show(block=False)
-
-    return myEDC
-
-
-def plot_Hanne(bholes=None, plotMeanGT=False):
-    """
-    Call signature:
-    bholes = plot_Hanne(bholes=None, plotMeanGT=False)
-
-    Function to produce plot for Hannes IPY PPP paper
-
-    Will plot temperatures from Sisimiut, Ilulissat, Kangerlussuaq, Nuuk
-    and Zackenberg (not in database) in the same plot using Hannes layout.
-
-    If variable bholes containing data from these boreholes is not passed to
-    the function, those boreholes will be read from disk.
-    """
-
-    if bholes is None:
-        bholes = read_boreholes(
-            'D:\Thomas\Artek\Data\GroundTemp\Sisimiut\SIS2007-06_West_Palsa\SIS2007-06_West_Palsa_Shallow',
-            calc_daily=False)
-        bholes = read_boreholes(
-            'D:\Thomas\Artek\Data\GroundTemp\Sisimiut\SIS2007-06_West_Palsa\SIS2007-06a_West_Palsa_Deep', bholes=bholes,
-            calc_daily=False)
-        bholes = read_boreholes('D:\Thomas\Artek\Data\GroundTemp\Ilulissat\ILU2007-01_78020', bholes=bholes,
-                                calc_daily=False)
-        bholes = read_boreholes('D:\Thomas\Artek\Data\GroundTemp\Kangerlussuaq\KAN2005-01', bholes=bholes,
-                                calc_daily=False)
-        bholes = read_boreholes('D:\Thomas\Artek\Data\GroundTemp\Nuuk\NUK04008-808', bholes=bholes, calc_daily=True)
-
-    bholes['KAN2005-01'].uncalibrate()
-    bholes['KAN2005-01'].calc_daily_avg(mindata=8)
-
-    if 'SIS2007-06_combi' not in bholes:
-        bholes['SIS2007-06_combi'] = combine_boreholes(
-            bholes['SIS2007-06'],
-            bholes['SIS2007-06a'],
-            drop_channels={'1104196': [1, 2, 3]})
-
-    #    if 'SIS2007-06_combi' not in bholes:
-    #        bholes['SIS2007-06_combi'] = copy.deepcopy(bholes['SIS2007-06'])
-    #        for l in bholes['SIS2007-06a'].loggers:
-    #            bholes['SIS2007-06_combi'].loggers.append(copy.deepcopy(l))
-    #        bholes['SIS2007-06_combi'].drop_channels(logger_sn='1104196',channels=[1,2,3])
-    #        bholes['SIS2007-06_combi'].calc_daily_avg()
-
-    figBG = 'w'
-    fh = plt.figure(figsize=(20., 10.2), facecolor=figBG)
-    fh.set_size_inches(20., 10.2, forward=True)
-    map_ax = plt.subplot(1, 3, 3)
-    ax1 = plt.subplot(2, 3, 1)
-    ax2 = plt.subplot(2, 3, 2)
-    ax3 = plt.subplot(2, 3, 4)
-    ax4 = plt.subplot(2, 3, 5)
-    ax5 = plt.subplot(2, 3, 3)
-
-    plt.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=0.4, hspace=None)
-
-    bholes['KAN2005-01'].uncalibrate()  # Calibration for this borehole is not correct,
-    # and data should be presented uncalibrated.
-
+def plot_trumpet(bhole, end_date=None, nyears=1, lim=None, depths=None, annotate=True, Tzaa=None, Dzaa=None, Tstd=None):
     args = dict(
-        plotMeanGT=True,
         maxGT=dict(
             linestyle='-',
-            color='k',
-            marker='.',
-            markersize=7,
-            zorder=5),
+            lw=2,
+            color='r',
+            zorder=5,
+            label='Maximum'),
         minGT=dict(
             linestyle='-',
-            color='k',
-            marker='.',
-            markersize=7,
-            zorder=5),
+            lw=2,
+            color='b',
+            zorder=5,
+            label='Minimum'),
         MeanGT=dict(
             linestyle='-',
-            color='k',
-            marker='.',
-            markersize=7,
-            zorder=5),
+            lw=2,
+            color='g',
+            zorder=5,
+            label='Average'),
         fill=None,
         vline=dict(
-            linestyle='-',
+            linestyle='--',
+            lw=1.5,
             color='k',
-            zorder=1),
+            zorder=2),
         grid=dict(
             linestyle='-',
-            color='0.8',
-            zorder=0))
-
-    bholes['ILU2007-01'].plot_trumpet(lim=['2008-06-10', '2009-06-09'], ax=ax1, args=args)
-    bholes['SIS2007-06_combi'].plot_trumpet(lim=['2008-09-01', '2009-08-31'], ax=ax2, args=args)
-    bholes['KAN2005-01'].plot_trumpet(lim=['2007-08-04', '2008-08-03'], ax=ax3, args=args)
-    bholes['NUK04008-808a+b'].plot_trumpet(lim=['2008-07-04', '2009-07-03'], ax=ax4, args=args)
-
-    ZC1depths = [1.25, 1.5, 2.5, 3, 3.25]
-    ZC1meanGT = [-8.42, -8.38, -8.21, -8.13, -8.09]
-    ZC1min = [-15.88, -15.88, -15.2, -12.9, -12.03]
-    ZC1max = [-2.02, -2.72, -4.18, -4.82, -5.05]
-
-    ax5.plot(ZC1max, ZC1depths, **args['maxGT'])
-    ax5.hold(True)
-    ax5.plot(ZC1min, ZC1depths, **args['minGT'])
-
-    ylim = pylab.get(ax5, 'ylim')
-    ax5.set_ylim(ymax=min(ylim), ymin=max(ylim))
-
-    ax5.axvline(x=0, **args['vline'])
-
-    ax5.plot(ZC1meanGT, ZC1depths, **args['MeanGT'])
-
-    ax5.grid(True, **args['grid'])
-
-    ax5.get_xaxis().tick_top()
-    ax5.set_xlabel('Temperature [$^\circ$C]')
-    ax5.set_ylabel('Depth [m]')
-
-    bbox = dict(facecolor='w', edgecolor='None', alpha=1)
-    ax1.text(0.95, 0.05, 'Ilulissat\nILU2007-01', horizontalalignment='right', verticalalignment='bottom',
-             transform=ax1.transAxes, bbox=bbox)
-    ax2.text(0.95, 0.05, 'Sisimiut\nSIS2007-06\nSIS2007-06a', horizontalalignment='right', verticalalignment='bottom',
-             transform=ax2.transAxes, bbox=bbox)
-    ax3.text(0.95, 0.05, 'Kangerlussuaq\nKAN2005-01', horizontalalignment='right', verticalalignment='bottom',
-             transform=ax3.transAxes, bbox=bbox)
-    ax4.text(0.95, 0.05, 'Nuuk\nNUK04008-808a+b', horizontalalignment='right', verticalalignment='bottom',
-             transform=ax4.transAxes, bbox=bbox)
-    ax5.text(0.95, 0.05, 'Zackenberg\nZC1', horizontalalignment='right', verticalalignment='bottom',
-             transform=ax5.transAxes, bbox=bbox)
-
-    ax1.set_title('')
-    ax2.set_title('')
-    ax3.set_title('')
-    ax4.set_title('')
-    ax5.set_title('')
-
-    ax1.set_xlim([-30, 30])
-    ax2.set_xlim([-30, 30])
-    ax3.set_xlim([-30, 30])
-    ax4.set_xlim([-30, 30])
-    ax5.set_xlim([-30, 30])
-
-    ax1.set_ylim([7, 0])
-    ax2.set_ylim([7, 0])
-    ax3.set_ylim([7, 0])
-    ax4.set_ylim([7, 0])
-    ax5.set_ylim([7, 0])
-
-    ax1.grid(True, color='0.8', linestyle='-', zorder=0)
-    ax2.grid(True, color='0.8', linestyle='-', zorder=0)
-    ax3.grid(True, color='0.8', linestyle='-', zorder=0)
-    ax4.grid(True, color='0.8', linestyle='-', zorder=0)
-    ax5.grid(True, color='0.8', linestyle='-', zorder=0)
-
-    plt.show(block=False)
-
-    return bholes
+            color='0.5',
+            zorder=0),
+        title=None)
 
 
-def plot_Kenji(bholes=None, plotMeanGT=False):
-    """
-    Call signature:
-    bholes = plot_Kenji(bholes=None, plotMeanGT=False)
-
-    Function to produce output for Kenji's outreach paper
-
-    Will produce monthly averages for the stations in Sisimiut, Ilulissat,
-    Kangerlussuaq and Nuuk, and output these to disk file.
-
-    If variable bholes containing data from these boreholes is not passed to
-    the function, those boreholes will be read from disk.
-    """
-
-    if bholes is None:
-        bholes = read_boreholes('D:\Thomas\Artek\Data\GroundTemp\Sisimiut\SIS2007-06_West_Palsa_Shallow',
-                                calc_daily=False)
-        bholes = read_boreholes('D:\Thomas\Artek\Data\GroundTemp\Sisimiut\SIS2007-06a_West_Palsa_Deep', bholes=bholes,
-                                calc_daily=False)
-        bholes = read_boreholes('D:\Thomas\Artek\Data\GroundTemp\Ilulissat\ILU2007-01_78020', bholes=bholes,
-                                calc_daily=True)
-        bholes = read_boreholes('D:\Thomas\Artek\Data\GroundTemp\Kangerlussuaq\KAN2005-01', bholes=bholes,
-                                calc_daily=False)
-        bholes = read_boreholes('D:\Thomas\Artek\Data\GroundTemp\Nuuk\NUK04008-808', bholes=bholes, calc_daily=True)
-
-    bholes['KAN2005-01'].uncalibrate()
-    # Calibration for this borehole is not correct,
-    # and data should be presented uncalibrated.
-
-    if 'SIS2007-06_combi' not in bholes:
-        bholes['SIS2007-06_combi'] = combine_boreholes(
-            bholes['SIS2007-06'],
-            bholes['SIS2007-06a'],
-            drop_channels={'1104196': [1, 2, 3]})
-
-    #    if 'SIS2007-06_combi' not in bholes:
-    #        bholes['SIS2007-06_combi'] = copy.deepcopy(bholes['SIS2007-06'])
-    #        for l in bholes['SIS2007-06a'].loggers:
-    #            bholes['SIS2007-06_combi'].loggers.append(copy.deepcopy(l))
-    #        bholes['SIS2007-06_combi'].drop_channels(logger_sn='1104196',channels=[1,2,3])
-    #        bholes['SIS2007-06_combi'].calc_daily_avg()
-
-    bhids = ['SIS2007-06_combi', 'ILU2007-01', 'KAN2005-01', 'NUK04008-808a+b']
-    # bhids = ['ILU2007-01']
-    for bhid in bhids:
-        bholes[bhid].calc_monthly_avg()
-        bholes[bhid].print_monthly_data()
-
-    return bholes
-
-
-def plot_data_coverage(bholes, **kwargs):
-    #   pdb.set_trace()
-    if kwargs.has_key('axes'):
-        ax = kwargs.pop('axes')
-    elif kwargs.has_key('Axes'):
-        ax = kwargs.pop('Axes')
-    elif kwargs.has_key('ax'):
-        ax = kwargs.pop('ax')
+    if lim is None:
+        bhole.plot_trumpet(end=end_date, nyears=1, args=args, depths=depths)
+        lim = nyears2lim(bhole.daily_ts.index[-1], 1)
     else:
-        fh = pylab.figure()
-        ax = pylab.axes()
+        # pdb.set_trace()
+        lim = fix_lim(lim)  # ensure dates
+        bhole.plot_trumpet(lim=lim, args=args, depths=depths)
 
-    # Get start date and convert to ordinal
-    date_start = kwargs.pop('start', None)
-    if date_start is not None:
-        # Convert string to datetime.date object
-        date_start = ensure_datetime_object(date_start, date_type=True)
+    z0, maxGT = bhole.get_ALT(lim=lim, depths=depths)
+    # z0, maxT, maxT_d = bhole.get_ALT(end_date=end_date, nyears=nyears,
+    #                           lim=lim, depths=depths)
 
-    n = 0
-    bhnames = sorted(bholes.keys())
-    for bh in bhnames:
-        n -= 1
-        dates = bholes[bh].get_dates()
-        # if date_start is not None:
-        #    dates = dates[dates>=date_start]
-        if len(dates) > 0:
-            # only plot if there is data within the requested date range...
-            ax.plot_date(dates, np.zeros_like(dates) + n, 'k.')
-        ax.axhline(n, linestyle=':', color='k')
+    #z0 = z0[0]  # for now use only first zero crossing
 
-    lim = ax.get_ylim()
-    ax.set_ylim([lim[0] - 1, lim[1] + 1])
+    zaa_stats = bhole.get_zaa_stats(lim=lim)
+    Tzaa = zaa_stats['Tzaa']
+    Tstd = zaa_stats['Tstd']
+    Dzaa = zaa_stats['Dzaa']
+    Dzaa_exact = zaa_stats['exact']
 
-    plt.setp(ax, 'yticks', np.arange(n, 0))
-    plt.setp(ax, 'yticklabels', bhnames[::-1])
+    p1 = mpl.patches.Rectangle((-50, z0 - 50), 100, 100, ec='none', fc='#FFE4E4', zorder=-10)
+    plt.gca().add_patch(p1)
+    p2 = mpl.patches.Rectangle((-50, z0), 100, 100, ec='k', fc='#99CCFF', zorder=-5)
+    plt.gca().add_patch(p2)
 
-    if date_start is not None:
-        xl = ax.get_xlim()
-        ax.set_xlim([mpl.dates.date2num(date_start), xl[1]])
+    tit = 'Hole: {0}'.format(bhole.name)
 
-    years = mpl.dates.YearLocator()  # every year
-    yearsFmt = mpl.dates.DateFormatter('%Y')
-
-    ax.xaxis.set_major_locator(years)
-    ax.xaxis.set_major_formatter(yearsFmt)
-
-    plt.show(block=False)
-
-
-##    if type(bholes) != list:
-##        bholes = [bholes]
-##
-##    for id,bh in enumerate(bholes)
-##        plot(bh.
-# In order to make this function, the class borehole should have a method
-# that returns an array of dates for which all loggers has data, an array of
-# dates where some of the loggers have data, and possibly an array of dates
-# where entries are available but masked.
-
-
-def print_GT_data(bh, end=None, nyears=1):
-    """
-    Call signature:
-    print_GT_data(bh,  end=None, nyears=1)
-
-    Function to print information about borehole ground temperatures.
-
-    It will print to the console:
-    - The borehole name
-    - The first and last day of data in the full time series
-    - The date interval for which information will be printed
-    - Max, Min and MAGT for each depth.
-
-    The function will also call the method to plot a trumpet curve.
-    """
-
-    if end is None:
-        end = bh.daily_ts.times[-1]
-
-    lim = [end.replace(year=end.year - 1) + dt.timedelta(days=1), end]
-
-    mx = bh.get_MaxGT(lim=lim)
-    mn = bh.get_MinGT(lim=lim)
-    magt = bh.get_MAGT(end=end, nyears=nyears)
-
-    print " "
-    print "Borehole: " + bh.name
-    print " "
-    print "Data availability: ", bh.daily_ts.times[0], "to", bh.daily_ts.times[-1]
-    print " "
-    print "Data for trumpet curves"
-    print "Date range: ", lim[0], "to", lim[1]
-    print " "
-    print "Depth,      Max,      Min,     MAGT"
-    for id, d in enumerate(mx['depth']):
-        if d >= 0:
-            print "%5.2f,  %7.2f,  %7.2f,  %7.2f" % (d, mx['value'][id], mn['value'][id], magt['value'][id])
-
-    bh.plot_trumpet(lim=lim, plotMeanGT=True)
-
-
-def get_MAGTs(bholes, month=1, day=1, fullts=False):
-    """
-        Call signature:
-        get_MAGT(bholes, month=1, day=1, fullts=False)
-
-        This method calculates the Mean Annual Ground Temperature for the entire timeseries
-        in all the boreholes passed, using the specified month and day for separating the
-        years.
-
-        MAGT is calculated based on the averaged daily time series unless fullts=True
-        is specified (full_ts not yet supported).
-
-        """
-
-    import pandas as pd
-
-    if not hasattr(bholes, 'keys'):
-        bholes = {bholes.name: bholes}
-
-    if not fullts:
-        magt_dict = {}
-        for bname, bhole in bholes.items():
-            if bhole.daily_ts is None:
-                bhole.calc_daily_avg()
-
-            # Get a dictionary of year:timeseries pairs
-            ydict = bhole.daily_ts.split_years(month=month, day=day)
-
-            years = np.array(sorted(ydict.keys()))
-            depths = bhole.depths
-            ndepths = len(bhole.depths)
-            magt = np.zeros((len(years), ndepths))
-            stdev = np.zeros((len(years), ndepths))
-            ndays = np.zeros((len(years), ndepths))
-
-            for idy, yr in enumerate(years):
-                ts = ydict[yr]
-                magt[idy, :] = ts.mean()['value'][:, 0]
-                stdev[idy, :] = ts.std()['value'][:, 0]
-                ndays[idy, :] = len(ts) - ts.data.mask.sum(axis=0)
-
-            magt_dict[bname] = dict(Years=years, Depths=depths, MAGT=magt, STD=stdev, NDAYS=ndays)
-
-            iterables = [['MAGT', 'STD', 'NDAYS'], depths]
-            index = pd.MultiIndex.from_product(iterables, names=['Parameter', 'Depth'])
-
-            magt_dict[bname] = pd.DataFrame(np.hstack([magt, stdev, ndays]), index=years, columns=index)
+    period = [l.year for l in lim]
+    if period[0] == period[1]:
+        tit = tit + '\nPeriod: {0:d}'.format(period[0])
     else:
-        raise "Full timeseries support in get_MAGTs is not implemented yet!"
-
-    return magt_dict
-
-
-def find_nearest(array, value):
-    """
-    Finds the index into array of the element nearest to value.
-    """
-    return (np.abs(np.asarray(array) - value)).argmin()
-
-
-def plot_MAGTs(bholes, depth=None, ndays=340):
-    """
-    Will plot MAGTs for all the boreholes passed in a single plot.
-    Only years with data for more than ndays will be plotted.
-
-    Tip: use filter_dict function to filter a large dictionary of boreholes.
-    e.g.:
-    filter_dict(bholes, lambda k, v: k.startswith('SIS'))
-
-    Usage example:
-    BH.plot_MAGTs(BH.filter_dict(bholes, lambda k, v: k.startswith('ILU')), depth=3.0)
-    """
-
-    magts = get_MAGTs(bholes)
-
-    fig = plt.figure()
-    ax = plt.axes()
-
-    for bname, data in magts.items():
-        if depth is not None:
-            id1 = find_nearest(data['Depths'], depth)
-        else:
-            id1 = -1
-
-        id2 = data['NDAYS'][:, id1] >= ndays
-        ax.plot(data['Years'][id2], data['MAGT'][id2, id1], '.', label=bname)
-
-    ax.legend()
-
-
-def calc_MAGT_trend(bholes, depth=None, min_ndat=350):
-    """
-    Calculates the linear trend in MAGT for the combined timeseries of
-    the boreholes passed in bholes.
-
-    Usage example:
-    BH.calc_MAGT_trend(BH.filter_dict(bholes, lambda k, v: k in ['ILU OBO', 'ILU2007-03']),
-                       depth=3.0, min_ndat={'ILU OBO':20,'ILU2007-03':300})
-    """
-
-    magts = get_MAGTs(bholes, month=8, day=31)
-
-    if len(magts) > 1:
-        print "NB! MAGT timeseries will be concatenated and sorted chronologically!"
-
-    if not hasattr(min_ndat, 'keys'):
-        min_ndat = {k: min_ndat for k in magts.keys()}
-
-    fig = plt.figure()
-    ax = plt.axes()
-
-    x = []
-    y = []
-
-    for bname, data in magts.items():
-        if depth is not None:
-            id = find_nearest(data['Depths'], depth)
-        else:
-            id = -1
-
-        idx = data['NDAYS'][:, id] >= min_ndat[bname]
-        if sum(idx) == 0:
-            continue
-        x.extend(list(data['Years'][idx]))
-        y.extend(list(data['MAGT'][idx, id]))
-        ax.plot(data['Years'][idx], data['MAGT'][idx, id], '.', label=bname)
-
-    x = np.array(x)
-    y = np.array(y)
-    idx = x.argsort()
-    x = x[idx]
-    y = y[idx]
-
-    (a, b, r, tt, stderr) = scp_stats.linregress(x, y)
-    ax.plot(x, a * x + b, '--k')
-
-    annotation = ['eq', 'R', 'N']
-    astr = ''
-    if 'eq' in annotation:
-        astr = 'y = {0:.4f}*x + {1:.4f}'.format(a, b)
-    if 'R' in annotation:
-        if astr != '': astr = astr + '\n'
-        astr = astr + 'R$^2$ = {0:.4f}'.format(r)
-    if 'N' in annotation:
-        if astr != '': astr = astr + '\n'
-        astr = astr + 'N = {0:.0f}'.format(len(y))
-
-    if astr != '':
-        ax.text(0.05, 0.95, astr,
-                verticalalignment='top',
-                fontsize=14,
-                transform=ax.transAxes)
-
-    # yl = ax.get_ylim()
-    # yl[1] = np.max([0., yl])
-
-    ax.legend(loc='lower right')
-
-
-def plot_date_interactive(bhole, date=0, lim=None):
-    """
-    Will plot date from borehole, and allow stepping in time.
-
-
-    Arrow right:     Next date
-    Arrow left:      Previous date
-    Pg Up:           Take 10 time-steps ahead in time
-    Pg Down:         Take 10 time-steps back in time
-    y:               Jump ahead 1 year (or as close as possible)
-    shift+y:         Jump back 1 year (or as close as possible)
-    """
-
-    """
-    If using Qt4Agg backend (try mpl.get_backend() to find out), make sure that
-    the following is in your lib/site-packages/matplotlib/backends/backend_qt4.py
-
-        class FigureCanvasQT( QtGui.QWidget, FigureCanvasBase ):
-            keyvald = { QtCore.Qt.Key_Control : 'control',
-                        QtCore.Qt.Key_Shift : 'shift',
-                        QtCore.Qt.Key_Alt : 'alt',
-                        QtCore.Qt.Key_Return : 'enter',
-                        QtCore.Qt.Key_Left : 'left',
-                        QtCore.Qt.Key_Up : 'up',
-                        QtCore.Qt.Key_Right : 'right',
-                        QtCore.Qt.Key_Down : 'down',
-                        QtCore.Qt.Key_Escape : 'escape',
-                        QtCore.Qt.Key_F1 : 'f1',
-                        QtCore.Qt.Key_F2 : 'f2',
-                        QtCore.Qt.Key_F3 : 'f3',
-                        QtCore.Qt.Key_F4 : 'f4',
-                        QtCore.Qt.Key_F5 : 'f5',
-                        QtCore.Qt.Key_F6 : 'f6',
-                        QtCore.Qt.Key_F7 : 'f7',
-                        QtCore.Qt.Key_F8 : 'f8',
-                        QtCore.Qt.Key_F9 : 'f9',
-                        QtCore.Qt.Key_F10 : 'f10',
-                        QtCore.Qt.Key_F11 : 'f11',
-                        QtCore.Qt.Key_F12 : 'f12',
-                        QtCore.Qt.Key_Home : 'home',
-                        QtCore.Qt.Key_End : 'end',
-                        QtCore.Qt.Key_PageUp : 'pageup',
-                        QtCore.Qt.Key_PageDown : 'pagedown',
-                       }
-
-    """
-
-    return DatePlotInteractive(bhole, date)
-
-
-# import time
-
-class DatePlotInteractive:
-    def __init__(self, bhole, date=0):
-        self.key_down = ''
-        self.bhole = bhole
-        self.ax = None
-        self.fh = None
-
-        if not hasattr(date, 'year'):
-            try:
-                if date >= 0 and date < len(self.bhole):
-                    self.date_id = date
-                else:
-                    self.date_id = 0
-            except:
-                self.date_id = 0
-        else:
-            date_id = find(self.bhole.daily_ts.times == date)
-            if len(date_id) == 0:
-                raise IndexError('Date is not present in timeseries')
-            else:
-                self.date_id = date_id[0]
-
-        self.plot()
-        self.connect()
-        print "Plot connected!"
-
-    def connect(self):
-        'connect to all the events we need'
-        self.keypress = self.fh.canvas.mpl_connect(
-            'key_press_event', self.on_key_press)
-        self.keyrelease = self.fh.canvas.mpl_connect(
-            'key_release_event', self.on_key_release)
-
-    def disconnect(self):
-        'disconnect all the stored connection ids'
-        self.fh.canvas.mpl_disconnect(self.keypress)
-        self.fh.canvas.mpl_disconnect(self.keyrelease)
-        self.keypress = None
-        self.keyrelease = None
-
-    def plot_exists(self):
-        if self.ax and self.ax.figure.number in plt.get_fignums():
-            return True
-        else:
-            return False
-
-    def reset(self):
-        if self.fh:
-            self.disconnect()
-            self.fh = None
-            self.ax = None
-
-    def plot(self, fs=12):
-
-        istate = mpl.is_interactive()
-        mpl.interactive(False)
-
-        if self.plot_exists():
-            for id, lh in enumerate(self.ax.lines):
-                if hasattr(lh, 'tag') and lh.tag == 'gt':
-                    # self.ax.lines.pop(id)
-                    lh.remove()
-
-            for id, th in enumerate(self.ax.texts):
-                if hasattr(th, 'tag') and th.tag == 'date':
-                    # self.ax.texts.pop(id)
-                    th.remove()
-
-            gid = find(np.array(self.bhole.depths) >= 0.)
-            depths = np.take(self.bhole.depths, gid)
-            data = self.bhole.daily_ts.data[self.date_id, gid].flatten()
-
-            lh = self.ax.plot(data, depths, '-k', marker='.', markersize=7)
-            lh[0].tag = 'gt'
-
-            t2h = self.ax.text(0.95, 0.05, self.bhole.daily_ts.times[self.date_id],
-                               horizontalalignment='right', verticalalignment='bottom',
-                               transform=self.ax.transAxes, fontsize=fs)
-            t2h.tag = 'date'
-
-        #            ylim = pylab.get(ax, 'ylim')
-        #            ax.set_ylim(ymax=min(ylim), ymin=max(ylim))
-        else:
-            self.reset()
-            self.ax = self.bhole.plot_date(date=self.bhole.daily_ts.times[self.date_id])
-            self.fh = self.ax.figure
-
-        mpl.interactive(istate)
-        plt.draw()
-
-    def on_key_release(self, event):
-        self.key_down = ''
-        # print ("Key released   ", event.inaxes)
-        if not self.plot_exists():
-            self.disconnect()
-
-    def on_key_press(self, event):
-        if not self.plot_exists():
-            self.disconnect()
-            return
-
-        self.key_down = event.key
-
-        if self.key_down in ['left', '-']:
-            # print "Keypress: ", self.key_down
-            if self.date_id > 0:
-                self.date_id -= 1
-
-        elif self.key_down in ['right', '+']:
-            # print "Keypress: ", self.key_down
-            if self.date_id < len(self.bhole.daily_ts) - 1:
-                self.date_id += 1
-
-        elif self.key_down == 'pagedown':
-            # print "Keypress: ", self.key_down
-            if self.date_id > 9:
-                self.date_id -= 10
-        elif self.key_down == 'pageup':
-            # print "Keypress: ", self.key_down
-            if self.date_id < len(self.bhole.daily_ts) - 10:
-                self.date_id += 10
-        elif self.key_down == 'y':
-            # print "Keypress: ", self.key_down
-            thisdate = self.bhole.daily_ts.times[self.date_id]
-            nextyear = dt.date(thisdate.year + 1, thisdate.month, thisdate.day)
-
-            if nextyear not in self.bhole.daily_ts:
-                self.date_id = find(self.bhole.daily_ts.times < nextyear)[-1]
-            else:
-                self.date_id = self.bhole.daily_ts.get_date_id(nextyear)
-
-            if self.date_id:
-                if hasattr(self.date_id, '__iter__'):
-                    self.date_id = self.date_id[0]
-            else:
-                self.date_id = -1
-
-        elif self.key_down == 'Y':
-            # print "Keypress: ", self.key_down
-            thisdate = self.bhole.daily_ts.times[self.date_id]
-            prevyear = dt.date(thisdate.year - 1, thisdate.month, thisdate.day)
-
-            if prevyear not in self.bhole.daily_ts:
-                self.date_id = find(self.bhole.daily_ts.times > prevyear)[0]
-            else:
-                self.date_id = self.bhole.daily_ts.get_date_id(prevyear)
-
-            if self.date_id:
-                if hasattr(self.date_id, '__iter__'):
-                    self.date_id = self.date_id[0]
-            else:
-                self.date_id = 0
-
-        elif self.key_down in ['?', 'h']:
-            # print "Keypress: ", self.key_down, "  list key bindings"
-            keybindings = """
-            Key presses supported:
-
-            Arrow right:     Next date
-            Arrow left:      Previous date
-            Pg Up:           Take 10 time-steps ahead in time
-            Pg Down:         Take 10 time-steps back in time
-            y:               Jump ahead 1 year (or as close as possible)
-            shift+y:         Jump back 1 year (or as close as possible)
-            h:               List of commands
-            """
-            print keybindings
-            return
-        else:
-            return
-
-        self.plot()
-
-
-# --- ### General helper functions ###
-
-def find(condition):
-    """
-    Remake of mpl.mlab.find to also work with masked arrays.
-    It will not take masked elements into account.
-    For normal np.ndarray the function works like mpl.mlab.find.
-    """
-    np.array(condition)
-    res, = np.nonzero(np.ma.ravel(condition > 0))
-    return res
-
-
-def nyears2lim(end=None, nyears=1):
-    # check date format, do necessary conversion to datetime.date object
-    if end is None:
-        return False
-
-    if type(end) in [int, float, np.float32, np.float64]:
-        end = mpl.dates.num2date(end).date()
-    elif type(end) == str:
-        end = dateutil.parser.parse(end, yearfirst=True, dayfirst=True).date()
-    elif type(end) in [dt.datetime]:
-        end = end.date()
-    elif type(end) != dt.date:
-        raise "dates should be either ordinals, date or datetime objects"
-
-    start = copy.copy(end).replace(year=end.year - nyears)
-    start = start + dt.timedelta(days=1)
-
-    return [start, end]
-
-
-def ensure_datetime_object(dat, date_type=False):
-    """
-    Tests if the input is a datetime object, and otherwise attempts to convert.
-    Valid input is a string ('2005-01-01' or '2005-01-01 22:00:00+01:00' etc) or a matplotlib ordinal.
-    
-    date_type: flag to specify whether a datetime.date type should be enforced.
-    """
-
-    if type(dat) in [int, float, np.float32, np.float64]:
-        end = mpl.dates.num2date(end)
-    elif type(dat) == str:
-        dat = dateutil.parser.parse(dat, yearfirst=True, dayfirst=True)
-    if type(dat) not in [dt.date, dt.datetime]:
-        raise "dates should be either ordinals, date or datetime objects"
-
-    if date_type and type(dat) in [dt.datetime]:
-        dat = dat.date()
-
-    return dat
-
-
-# --- ### Plot annotation functions
-
-
-def onpick(event):
-    print event.artist.get_label() + " was clicked!"
-
-    if isinstance(event.artist, plt.Line2D):
-        thisline = event.artist
-
-        xdata = thisline.get_xdata()
-        ydata = thisline.get_ydata()
-        ind = event.ind
-
-        print "%i datapoints within tolerance" % len(ind)
-        if len(ind) != 0:
-            print 'Coordinates: ', zip(xdata[ind], ydata[ind])
-
-        print "\n"
-
-    elif isinstance(event.artist, plt.Rectangle):
-        patch = event.artist
-        vertsxy = patch.get_verts()
-        print 'onpick patch:', vertsxy
-    elif isinstance(event.artist, plt.Text):
-        text = event.artist
-        print 'onpick text:', text.get_text()
-
-
-class Usage(Exception):
-    def __init__(self, msg):
-        self.msg = msg
-
-
-def main(argv=None):
-    #    if argv is None:
-    #        argv = sys.argv
-    #    try:
-    #        try:
-    #            opts, args = getopt.getopt(argv[1:], "h", ["help"])
-    #        except getopt.error, msg:
-    #             raise Usage(msg)
-    #        # more code, unchanged
-    #    except Usage, err:
-    #        print >>sys.stderr, err.msg
-    #        print >>sys.stderr, "for help use --help"
-    #        return 2
-    myEDC = plot_grl_boreholes()
-    bholes = myEDC.boreholes
-    print "\nCalculating ALT for B2007-06_combi"
-    bholes['SIS2007-06_combi'].calc_ALT()
-    print "Finished!"
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-
-"""
-bholes['SIS2007-06_combi'] = boreholes_v1p2.combine_boreholes(
-        bholes['SIS2007-06'],
-        bholes['SIS2007-06a'],
-        drop_channels = {'1104196': [1,2,3]})
-"""
-
-"""
-Problem with the trumpet plot method... Does it take masked data into account???
-Seems like it uses all data in the max/min operation.
-
-
-
-
-OK   Include borehole property in data logger files.
-OK   make test: if borehole property is present, it should match the borehole to which the file is being added.
-
-OK   The overall load-routine should parse the individual files, and add them to the appropriate borehole!
-
-Make new class: GTregion
-It should include a list of boreholes and methods to:
-    OK (but not in a class) add a directory tree of files.
-    plot locations on a basemap map
-
-add methods to borehole class to:
-    plot trumpet diagram (flag to plot also mean annual ground temperature)
-    OK plot individual depths
-    ?plot surface plot of temperatures?
-    plot location on basemap map
-
-    export to a single excel sheet with all depths
-        - how to handle different logging times? round or calculate daily averages...
-    calculate daily,monthly,yearly average T
-
-
-    Add possibility to mask an entire channel in input file header.
-    How do we handle masking individual datapoints in multichannel files?
-"""
+        tit = tit + '\nPeriod: {0:d}-{1:d}'.format(*[l.year for l in lim])
+
+    tit = tit + '\nALT: {0:.2f} m'.format(z0)
+
+    if Dzaa_exact:
+        tit = tit + '\nT$_{{zaa}}$: {0:.1f} $^{{\circ}} \mathrm{{C}}$ @ {1:.1f} m'.format(Tzaa, Dzaa)
+    else:
+        tit = tit + '\nT: {0:.1f} $^{{\circ}} \mathrm{{C}}$ @ {1:.1f} m'.format(Tzaa, Dzaa)
+
+    leg = plt.legend(loc='lower left', title=tit, fontsize=12)
+    leg._legend_box.align = "left"
+
+    ax = plt.gca()
+    ylim = ax.get_ylim()
+    ax.set_ylim([ylim[0], 0])
+    ylim = ax.get_ylim()
+    yspan = np.diff(ylim)
+    trans = transforms.blended_transform_factory(ax.transAxes, ax.transData)
+
+    if annotate:
+        ax.text(0.97, z0 + 0.02 * yspan, 'Active layer', transform=trans,
+                ha='right', va='bottom', fontsize=14)
+        ax.text(0.97, z0 - 0.02 * yspan, 'Permafrost', transform=trans,
+                ha='right', va='top', fontsize=14)
+
+    return (plt.gcf(), maxGT)
+
+
+
+def plot_surf(bhole, depths=None, ignore_mask=False, fullts=False, legend=True,
+              annotations=True, lim=None, figsize=(15, 6),
+              cmap=plt.cm.bwr, sensor_depths=True, cax=None,
+              cont_levels=[0]):
+    ax = bh.plot_surf(bhole, depths=depths, ignore_mask=ignore_mask, fullts=fullts, legend=legend,
+                      annotations=annotations, lim=lim, figsize=figsize,
+                      cmap=cmap, sensor_depths=sensor_depths, cax=cax,
+                      cont_levels=cont_levels)
+    return ax
