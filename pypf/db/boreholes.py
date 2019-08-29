@@ -810,11 +810,15 @@ class Borehole:
 
         # z0 = find_zero(maxT, maxT_d)[0]
         z0 = find_zero(maxT, maxT_d)
+        
+        if len(z0) == 0:
+            z0 = np.NaN
 
-        if maxT[0] > 0.:
+        elif maxT[0] > 0.:
             z0 = z0[0]
         else:
-            raise ValueError('Upper most temperature is negative, get_ALT cannot calculate thickness of active layer')
+            z0 = np.NaN
+            #raise ValueError('Upper most temperature is negative, get_ALT cannot calculate thickness of active layer')
 
         # return z0, maxT, maxT_d
         return z0, maxGT
