@@ -478,7 +478,10 @@ class Borehole:
         datetimes should be followed by a semicolon separated list of SensorIDs to be masked for all 
         datapoints within the given timerange (endpoints inclusive).
         """
-        with open(fname, 'r') as f:
+        if not hasattr(fname, 'open'):
+            fname = pathlib.Path(fname)
+            
+        with fname.open(mode='r') as f:
             lines = f.readlines()
 
         print "Applying masks from file: {0}".format(fname)
@@ -500,6 +503,24 @@ class Borehole:
             self.rawdata_mask.iloc[ids, self.rawdata_mask.columns.get_level_values(0).isin(SensorIDs)] = np.nan
             self.apply_mask()
             self.calc_daily_average()
+
+    def merge(self, other):
+        """Merges two boreholes, so that measurements from the two time series are merged and appear as one.
+        No checking or corrections are performed.
+        Only measurements from other that occur later than last measurement of self are considered.
+        There is no keeping track of calibration status.
+        """
+        outbh = copy.deepcopy(self)
+        # add to rawdata only the rows from other that are later than any row in self
+        outbh.rawdata = self.rawdata.append(other.rawdata[other.rawdata.index>self.rawdata.index[-1]])
+        outbh.rawdata_mask = self.rawdata_mask.append(other.rawdata_mask[other.rawdata_mask.index>self.rawdata_mask.index[-1]])
+        #outbh.rawdata_mask = self.rawdata_mask + other.rawdata_mask[other.rawdata_mask.index>self.rawdata_mask.index[-1]]
+        outbh.apply_mask()
+        outbh.calc_daily_average()
+        return outbh
+
+    def __add__(self, other):
+        return self.merge(other)
 
     def export(self, fname, delim=', '):
         """
