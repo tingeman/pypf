@@ -522,6 +522,40 @@ class Borehole:
     def __add__(self, other):
         return self.merge(other)
 
+    def sort_columns_by_depth(self):
+        self.daily_ts.sort_index(1,'CoordZ', sort_remaining=False, inplace=True)
+        
+    def get_header_info(self):
+        """Converts the column headers (MultiIndex) to an OrderedDict
+        with the level names as keys, and lists of the level values as 
+        values of the dict.
+        Can be modified and then used to recreate a modified MultiIndex.
+        
+        A use case could be to modify depths of the sensors.
+        """
+        
+        c = self.rawdata.columns
+        level_names = c.names
+        level_values =  [list(c.get_level_values(id)) for id in range(len(c.names))]
+        od = OrderedDict(zip(level_names, level_values))
+        
+        # Convert OrderedDict into new MultiIndex:
+        # mi = pd.MultiIndex.from_frame(pd.DataFrame(od))
+        
+        return od
+        
+    def set_header_info(self, od=None, names=None, values=None):
+        if od is not None:
+            mi = pd.MultiIndex.from_frame(pd.DataFrame(od))
+            self.rawdata.columns = mi
+            self.rawdata_mask.columns = mi
+        else:
+            if (names is not None) and (values is not None):
+                mi = pd.MultiIndex.from_arrays(values, names)
+                self.rawdata_mask.columns = mi
+            else:
+                raise ValueError('data format not appropriate to generate MultiIndex')
+                
     def export(self, fname, delim=', '):
         """
         This method should take a filename as input and export the ground temperature data
@@ -839,20 +873,26 @@ class Borehole:
         zaa_stats = self.daily_ts.loc[lim[0]:lim[1]].describe().transpose()
 
         zaa_stats = zaa_stats[zaa_stats.index.get_level_values('CoordZ') >= 0]
-
+        zaa_stats = zaa_stats.sort_values('CoordZ')
+        
         d_stats = {}
 
         if len(np.where(zaa_stats['max'] - zaa_stats['min'] <= 0.1)[0]) < 1:
+            # No depths has a difference between Tmax and Tmin of less than 0.1C
+            # Thus, take the deepest depth
             d_stats['Dzaa'] = np.max(self.sensor_depths)
             did = zaa_stats.index.get_level_values('CoordZ') == d_stats['Dzaa']
             d_stats['Tzaa'] = zaa_stats[did]['mean'].values[0]
             d_stats['Tstd'] = zaa_stats[did]['std'].values[0]
+            #d_stats['Tzaa'] = zaa_stats[did]['mean']
+            #d_stats['Tstd'] = zaa_stats[did]['std']
             d_stats['exact'] = False
         else:
+            # We do have zaa in range. Use first depth with Tmax-Tmin < 0.1C
             id = np.where(zaa_stats['max'] - zaa_stats['min'] <= 0.1)[0][0]
             d_stats['Dzaa'] = zaa_stats.index.get_level_values('CoordZ')[id]
-            d_stats['Tzaa'] = zaa_stats.iloc[id]['mean'].values[0]
-            d_stats['Tstd'] = zaa_stats.iloc[id]['std'].values[0]
+            d_stats['Tzaa'] = zaa_stats.iloc[id]['mean']
+            d_stats['Tstd'] = zaa_stats.iloc[id]['std']
             d_stats['exact'] = True
 
         # if len(np.where(stats['std'] * 4 < 0.1)[0]) < 1:
@@ -1021,7 +1061,10 @@ class Borehole:
         gid = find(self.daily_ts.columns.get_level_values('CoordZ') >= 0)
         depths = np.take(self.daily_ts.columns.get_level_values('CoordZ'), gid).values
 
+        self.sort_columns_by_depth()
+        
         data = self.daily_ts.iloc[self.daily_ts.index.isin([date]), gid].values.flatten()
+        
         if len(data) == 0:
             raise ValueError('The requested date ({0}) is not in the dataset.'.format(date))
 
