@@ -680,7 +680,7 @@ class Borehole:
             self.daily_ts = daily_ts
             
 
-    def get_MeanGT(self, lim=None, fullts=False, ignore_mask=False):
+    def get_MeanGT(self, lim=None, datelist=None, fullts=False, ignore_mask=False):
         # TODO: Implement masking in get_MeanGT, get_MinGT and get_MaxGT
 
         lim = fix_lim(lim)
@@ -691,10 +691,16 @@ class Borehole:
 
             #     if ignore_mask:
             #         print "Warning: ignore_mask option not implemented for averaged data!"
+            
+            df = self.daily_ts
+            
+            if datelist is not None:
+                df = df.loc[datelist]
+            
             if lim is not None:
-                meanGT = self.daily_ts.loc[lim[0]:lim[1]].mean()
+                meanGT = df.loc[lim[0]:lim[1]].mean()
             else:
-                meanGT = self.daily_ts.mean()
+                meanGT = df.mean()
 
             meanGT = meanGT[meanGT.index.get_level_values('CoordZ') >= 0]
 
@@ -729,7 +735,7 @@ class Borehole:
         #     return np.sort(meanGT, order='depth', axis=0)
         #     # raise "Full timeseries support in get_MAGT is not implemented yet!"
 
-    def get_MaxGT(self, lim=None, fullts=False, ignore_mask=False):
+    def get_MaxGT(self, lim=None, datelist=None, fullts=False, ignore_mask=False):
 
         lim = fix_lim(lim)
 
@@ -741,10 +747,15 @@ class Borehole:
             #         print "Warning: ignore_mask option not implemented for averaged data!"
 
             # Get max of timeseries
+            df = self.daily_ts
+            
+            if datelist is not None:
+                df = df.loc[datelist]
+            
             if lim is not None:
-                maxGT = self.daily_ts.loc[lim[0]:lim[1]].max()
+                maxGT = df.loc[lim[0]:lim[1]].max()
             else:
-                maxGT = self.daily_ts.max()
+                maxGT = df.max()
 
             maxGT = maxGT[maxGT.index.get_level_values('CoordZ') >= 0]
 
@@ -771,7 +782,7 @@ class Borehole:
         #     # Return sorted recarray
         #     return np.sort(maxGT, order='depth', axis=0)
 
-    def get_MinGT(self, lim=None, fullts=False, ignore_mask=False):
+    def get_MinGT(self, lim=None, datelist=None, fullts=False, ignore_mask=False):
 
         lim = fix_lim(lim)
 
@@ -783,11 +794,16 @@ class Borehole:
             #         print "Warning: ignore_mask option not implemented for averaged data!"
 
             # Get max of timeseries
+            df = self.daily_ts
+            
+            if datelist is not None:
+                df = df.loc[datelist]
+            
             if lim is not None:
-                minGT = self.daily_ts.loc[lim[0]:lim[1]].min()
+                minGT = df.loc[lim[0]:lim[1]].min()
             else:
-                minGT = self.daily_ts.min()
-
+                minGT = df.min()
+            
             minGT = minGT[minGT.index.get_level_values('CoordZ') >= 0]
 
             #     dtype = [('depth', float), ('value', float), ('time', type(tsmin['time']))]
@@ -832,7 +848,7 @@ class Borehole:
             depths = [depths]
 
         # get max values within time limits
-        maxGT = self.get_MaxGT(lim)
+        maxGT = self.get_MaxGT(lim=lim)
         maxGT = maxGT[maxGT.notna()]
 
         # convert depths to column indices
@@ -1037,7 +1053,7 @@ class Borehole:
         return plt.gca()
 
 
-    def plot_date(self, date, annotations=True, fs=12, xlim=None, show=True, **kwargs):
+    def plot_date(self, date, annotations=True, fs=12, xlim=None, ylim=None, show=True, **kwargs):
         """Plot temperature depth profile on a specific date.
 
         :param date:
@@ -1078,12 +1094,16 @@ class Borehole:
         lh[0].tag = 'gt'
 
         ax.axvline(x=0, linestyle=':', color='k')
-        ylim = plt.get(ax, 'ylim')
-        ax.set_ylim(ymax=min(ylim), ymin=max(ylim))
-
+        ax.axhline(y=0, linestyle='-', color='k')
+        
         if xlim is not None:
             ax.set_xlim(xlim)
-
+        
+        if ylim is None:
+            ylim = plt.get(ax, 'ylim')
+        
+        ax.set_ylim(ymax=min(ylim), ymin=max(ylim))        
+        
         ax.get_xaxis().tick_top()
         ax.set_xlabel('Temperature [$^\circ$C]', fontsize=fs)
         ax.get_xaxis().set_label_position('top')
@@ -1100,15 +1120,20 @@ class Borehole:
             t2h = ax.text(0.95, 0.05, date, horizontalalignment='right', verticalalignment='bottom',
                           transform=ax.transAxes, fontsize=fs)
             t2h.tag = 'date'
+            
+            if len(data[~np.isnan(data)])==0:
+                t3h = ax.text(0.95, 0.175, 'No data available', horizontalalignment='right', \
+                              verticalalignment='bottom', transform=ax.transAxes, fontsize=fs)
+                t3h.tag = 'no data'
+
 
         if show:
             plt.show(block=False)
 
         return ax
 
-
-
     def plot_trumpet(self, fullts=False, lim=None, end_date=None, args=None,
+                     xlim=None, ylim=None, 
                      nyears=None, plotMeanGT=True, fs=12, ignore_mask=False,
                      depths='all', **kwargs):
         """
@@ -1252,11 +1277,11 @@ class Borehole:
             depths = [depths]
 
         # get maximum values within time limits
-        maxGT = self.get_MaxGT(lim, fullts, ignore_mask=ignore_mask)
+        maxGT = self.get_MaxGT(lim=lim, fullts=fullts, ignore_mask=ignore_mask)
         # get minimum values within time limits
-        minGT = self.get_MinGT(lim, fullts, ignore_mask=ignore_mask)
+        minGT = self.get_MinGT(lim=lim, fullts=fullts, ignore_mask=ignore_mask)
+        
         # remove any missing depths (NaN's)
-
         maxGT = maxGT[maxGT.notna()]
         minGT = minGT[minGT.notna()]
 
@@ -1279,10 +1304,7 @@ class Borehole:
         #     thisX = np.append(maxGT['value'][did], minGT['value'][did][::-1])
         #     thisY = np.append(maxGT['depth'][did], minGT['depth'][did][::-1])
         #     ax.fill(thisX, thisY, **args['fill'])  # facecolor=fclr,edgecolor='none')
-
-        ylim = plt.get(ax, 'ylim')
-        ax.set_ylim(ymax=min(ylim), ymin=max(ylim))
-
+        
         if args.has_key('vline') and args['vline'] is not None:
             ax.axvline(x=0, **args['vline'])
 
@@ -1301,6 +1323,15 @@ class Borehole:
             did = get_indices(meanGT_depths, depths)
             did = [i for i in did if not np.isnan(i)]  # remove nan values
             ax.plot(meanGT[did], meanGT_depths[did], **args['MeanGT'])
+
+
+        if ylim is None:
+            ylim = plt.get(ax, 'ylim')
+            
+        ax.set_ylim(ymax=min(ylim), ymin=max(ylim))
+
+        if xlim is not None:
+            ax.set_xlim(xlim)
 
         if args.has_key('grid') and args['grid'] is not None:
             ax.grid(True, **args['grid'])
@@ -1508,7 +1539,7 @@ def split_year_date_lists(start='1960-08-01', end=dt.date.today(), month=8, day=
 
 
 
-def plot_trumpet(bhole, end_date=None, nyears=1, lim=None, depths=None, annotate=True, Tzaa=None, Dzaa=None, Tstd=None):
+def plot_trumpet(bhole, end_date=None, nyears=1, lim=None, xlim=None, ylim=None, depths=None, annotate=True, Tzaa=None, Dzaa=None, Tstd=None):
     args = dict(
         maxGT=dict(
             linestyle='-',
@@ -1542,12 +1573,12 @@ def plot_trumpet(bhole, end_date=None, nyears=1, lim=None, depths=None, annotate
 
 
     if lim is None:
-        bhole.plot_trumpet(end=end_date, nyears=1, args=args, depths=depths)
+        bhole.plot_trumpet(end=end_date, nyears=1, xlim=xlim, ylim=ylim, args=args, depths=depths)
         lim = nyears2lim(bhole.daily_ts.index[-1], 1)
     else:
         # pdb.set_trace()
         lim = fix_lim(lim)  # ensure dates
-        bhole.plot_trumpet(lim=lim, args=args, depths=depths)
+        bhole.plot_trumpet(lim=lim, xlim=xlim, ylim=ylim, args=args, depths=depths)
 
     z0, maxGT = bhole.get_ALT(lim=lim, depths=depths)
     # z0, maxT, maxT_d = bhole.get_ALT(end_date=end_date, nyears=nyears,
@@ -1585,8 +1616,11 @@ def plot_trumpet(bhole, end_date=None, nyears=1, lim=None, depths=None, annotate
     leg._legend_box.align = "left"
 
     ax = plt.gca()
-    ylim = ax.get_ylim()
-    ax.set_ylim([ylim[0], 0])
+    
+    if ylim is None:
+        ylim = ax.get_ylim()
+        ax.set_ylim([ylim[0], 0])
+        
     ylim = ax.get_ylim()
     yspan = np.diff(ylim)
     trans = transforms.blended_transform_factory(ax.transAxes, ax.transData)
