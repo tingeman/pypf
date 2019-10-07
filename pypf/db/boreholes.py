@@ -29,6 +29,7 @@ import matplotlib as mpl
 # mpl.use('WXAgg')
 import matplotlib.pyplot as plt
 import matplotlib.transforms as transforms
+import matplotlib.dates as mpld
 import numpy as np
 import pandas as pd
 import pathlib2 as pathlib
@@ -999,7 +1000,55 @@ class Borehole:
                 lh[0].tag = 'dataseries'
 
         else:
-            raise NotImplementedError('Use of full timeseries data is not yet implemented.')
+            if lim is None:
+                lim = self.get_limmits(fullts=True)
+
+            # Ensure limit consists of two datetime objects
+            lim = fix_lim(lim)
+
+            if (depths is None) or (type(depths) == str and depths.lower() == 'all'):
+                depths = self.sensor_depths
+
+            if not hasattr(depths, '__iter__'):
+                depths = [depths]
+
+            depths = [d for d in depths if d > 0.0000001]
+
+            # convert depths to column indices
+            did = get_indices(self.rawdata.columns.get_level_values('CoordZ'), depths)
+
+            # get copies of the data and times
+            # TODO: Reconsider way to handle getting only ground temperatures
+            data = self.rawdata[lim[0]:lim[1]].iloc[:, did].values
+            #ordinals = map(dt.datetime.toordinal, self.rawdata[lim[0]:lim[1]].index)
+            ordinals = map(mpld.date2num, self.rawdata[lim[0]:lim[1]].index)
+            
+
+            # TODO: Handle masked values
+            #     if ignore_mask:
+            #         mask = np.zeros(data.shape, dtype=bool)
+            #         mask = np.where(data < -273.15, True, False)
+            #         data.mask = mask
+            #
+            # Find the maximum and minimum temperatures, and round up/down
+            mx = np.nanmax(np.ceil(np.nanmax(data)))
+            mn = np.nanmin(np.floor(np.nanmin(data)))
+
+            # Iterate over all ground temperature columns
+            for c2id, cid in enumerate(did):
+
+                # Option to plot also the masked data points, but keeping
+                # a mask on anything that could not be a real temperature.
+                # if plotmasked:
+                #     mask = np.zeros(data.shape, dtype=bool)
+                #     mask = np.where(data < -273.15, True, False)
+                #     data.mask = mask
+                #
+                # if any(data.mask == False):
+                lh = ax.plot_date(ordinals, data[:,c2id], '-', label="{0:.2f} m".format(depths[c2id]), picker=5, **kwargs)
+                lh[0].tag = 'dataseries'
+        
+            #raise NotImplementedError('Use of full timeseries data is not yet implemented.')
             # depth_arr = self.get_depths(return_indices=True)
             #
             # if (depths is None) or (type(depths) == str and depths.lower() == 'all'):
