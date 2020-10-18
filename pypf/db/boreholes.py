@@ -136,7 +136,11 @@ def find_zero(xi, yi, exclude_zeros=True):
     # [1, 0, -1, 0, -1, 1]  ->   id = [0, 4]
     # [-1, 0, 1, 0, 1, -1]  ->   id = [1, 2, 3, 4]
     # ...such that interpolation can be done from nodes id to id+1
+    # In context of active layers, this means that the freezing front is
+    # identified at the top of a 0C interval.
+    #
     # There may be still some issues with [1, 0, 1] type situations, which may have to be handled.
+
 
     if exclude_zeros:
         # This code will check for xi elements equal zero, and
@@ -485,13 +489,21 @@ class Borehole:
         with fname.open(mode='r') as f:
             lines = f.readlines()
 
-        print "Applying masks from file: {0}".format(fname)
+        print "\nApplying masks from file: {0}".format(fname)
             
         for line in lines:
             if line.startswith('#'):
                 continue
+                
+            # remove any comments at end of line
+            line = line.strip()
+            head, sep, tail = line.partition('#')
+            line = head.strip()
             
-            print line,
+            if len(line) == 0:
+                continue  # line is empty, so continue
+            
+            print line
             dat = line.strip().strip(';').split(';')
             dat = [s.strip() for s in dat]
             date1 = dat[0]
@@ -832,6 +844,7 @@ class Borehole:
         #     return np.sort(minGT, order='depth', axis=0)
 
     def get_ALT(self, end_date=None, nyears=1, lim=None, depths=None):
+        # TODO: lim string input is not working!
         if end_date is None:
             end_date = self.rawdata.index[-1].date()
 
