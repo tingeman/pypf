@@ -149,7 +149,7 @@ class climate_data(object):
                 for did,d in enumerate(times): times[did] = d.date()
             dates = np.append(dates, times)
         else:
-            raise 'only the default behaviour (''unmasked'') has been implemented!'
+            raise ValueError('only the default behaviour (''unmasked'') has been implemented!')
                 
         return np.unique1d(dates)    
 
@@ -661,7 +661,7 @@ class climate_station(climate_data):
             if fname != None:
                 data,times,flags,paramsd = CDload(fname=fname, paramsd=paramsd, hlines=hlines)
             else:
-                raise "No file name specified!"
+                raise ValueError("No file name specified!")
         
         if data.ndim < 2:
             data = data.reshape(data.shape[0],1) 
@@ -799,9 +799,9 @@ class climate_station(climate_data):
         if not newts.dt_type in [dt.datetime, dt.date]:
             try:
                 #time = mpl.dates.num2date(time, tz=self.tzinfo)
-                raise "Problem with non-datetime times in ClimateData.patch_AT"
+                raise ValueError("Problem with non-datetime times in ClimateData.patch_AT")
             except:
-                raise "Bad input to calcMAAT"
+                raise ValueError("Bad input to calcMAAT")
         
         # remove any masked datapoints from time series
         newts.drop_masked()
@@ -847,7 +847,7 @@ class climate_station(climate_data):
                     try: 
                         fill_val = float(monthlyts.data[month_id,:])
                     except:
-                        raise "Month does not exist in monthly timeseries"
+                        raise ValueError("Month does not exist in monthly timeseries")
                     
                     newts.insert_timesteps(missing_dict[y][m],fill_value=fill_val, sort=False)
                 else:
@@ -890,7 +890,7 @@ class climate_station(climate_data):
             try:
                 time = mpl.dates.num2date(time, tz=self.tzinfo)
             except:
-                raise "Bad input to calcMAAT"
+                raise ValueError("Bad input to calcMAAT")
 
         years = {}
         for id,t in enumerate(time):
@@ -917,7 +917,7 @@ class climate_station(climate_data):
                 entry[1][entry[1]>0.].sum(), \
                 entry[1].size ) ) 
             if params[-1][2] <= -50 or params[-1][2] >= 50:
-                raise ValueError ('Problem in calculating the MAAT!')
+                raise ValueError('Problem in calculating the MAAT!')
         
         return np.array(params, dtype=dtype)
 
@@ -963,7 +963,7 @@ class climate_station(climate_data):
             try:
                 time = mpl.dates.num2date(time, tz=self.tzinfo)
             except:
-                raise "Bad input to calc_P_parameters"
+                raise ValueError("Bad input to calc_P_parameters")
 
         # Make dictionary with years as keys and an array of the daily
         # AT data for that year as value
@@ -1573,7 +1573,7 @@ def get_property_info(fname=None, text=None, sep=',', rstrip=None):
         else:
             lines = text
     else:
-        raise "Nothing to parse!"
+        raise ValueError("Nothing to parse!")
     
     items = dict()
     comments = dict()
@@ -2342,7 +2342,7 @@ class ILU_stations:
 #            if fname != None:
 #                data,times,flags,paramsd = CDload(fname=fname, paramsd=paramsd, hlines=hlines)
 #            else:
-#                raise "No file name specified!"
+#                raise ValueError("No file name specified!")
 #        
 #        if data.ndim < 2:
 #            data = data.reshape(data.shape[0],1) 
@@ -2353,7 +2353,7 @@ class ILU_stations:
 #        if dtype in ['at','p','sd']:
 #            dtype = dtype.upper()
 #        else:
-#            raise "Wrong data type specified!"
+#            raise ValueError("Wrong data type specified!")
 #        
 #        mask = np.zeros(data.shape,dtype=bool)
 #        
@@ -2419,7 +2419,7 @@ class ILU_stations:
 #            if newts.dt_type != dt.date:
 #                for did,d in enumerate(times): times[did] = d.date()
 #        else:
-#            raise 'only the default behaviour (''unmasked'') has been implemented!'
+#            raise ValueError('only the default behaviour (''unmasked'') has been implemented!')
 #                
 #        return np.unique1d(times)
 #
@@ -2453,7 +2453,7 @@ class ILU_stations:
 #            try:
 #                time = mpl.dates.num2date(time, tz=self.tzinfo)
 #            except:
-#                raise "Bad input to calcMAAT"
+#                raise ValueError("Bad input to calcMAAT")
 #
 #        years = {}
 #        for id,t in enumerate(time):

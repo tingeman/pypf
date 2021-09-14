@@ -350,16 +350,16 @@ def GTload(fname, sep=',', paramsd=None, hlines=None):
             paramsd['depth'] = list(map(float, paramsd['depth'].split(',')))
         datadim = len(paramsd['depth'])
     else:
-        raise 'No depth information in header! (' + fname + ')'
+        raise ValueError('No depth information in header! (' + fname + ')')
 
     if 'calibration' in paramsd:
         if type(paramsd['calibration']) == str:
             try:
                 paramsd['calibration'] = list(map(float, paramsd['calibration'].split(',')))
             except:
-                raise 'Could not parse calibration information! (' + fname + ')'
+                raise ValueError('Could not parse calibration information! (' + fname + ')')
         if datadim != len(paramsd['calibration']):
-            raise 'Calibration information does not match number of data columns! (' + fname + ')'
+            raise ValueError('Calibration information does not match number of data columns! (' + fname + ')')
 
     datetype = False
 
@@ -466,7 +466,7 @@ def GTload(fname, sep=',', paramsd=None, hlines=None):
 
         return (data, times, flags, paramsd)
     else:
-        raise 'Type of datafile cannot be determined... add type information to header'
+        raise ValueError("Type of datafile cannot be determined... add type information to header")
 
 
 class logger:
@@ -568,7 +568,7 @@ class logger:
         # calibrate data
         if self.calibration is not None and self.calibrated != False:
             if len(self.calibration) != data.shape[1]:
-                raise "Calibration information does not match number of data columns!"
+                raise ValueError("Calibration information does not match number of data columns!")
 
             for id, cal in enumerate(self.calibration):
                 data[:, id] = data[:, id] + cal
@@ -604,7 +604,7 @@ class logger:
                     self.sn = paramsd.pop('sn')
                     self.depth = paramsd.pop('depth')
                 except:
-                    raise "Logger parameters missing from file."
+                    raise ValueError("Logger parameters missing from file.")
 
                 # handle remaining parameters
                 for k, v in list(paramsd.items()):
@@ -617,7 +617,7 @@ class logger:
                     else:
                         print("Parameter ", k, " not recognized!")
             else:
-                raise "No header data in file, aborting!"
+                raise ValueError("No header data in file, aborting!")
         elif mtype in ['oldest', 'youngest', 'mean']:
             # otherwise chose the correct method of merging.
             if type(paramsd) == dict:
@@ -628,14 +628,14 @@ class logger:
                         # find and apply the correct permutation of the data file columns
                         id = find_permutation_id(self.depth, paramsd['depth'])
                         if id is None:
-                            raise "Data file depth info does not match existing logger info. Aborting!"
+                            raise ValueError("Data file depth info does not match existing logger info. Aborting!")
                         else:
                             data = data[:, id]
                             mask = mask[:, id]
 
                     self.timeseries.merge(myts(data, times, mask), mtype='oldest')
                 else:
-                    raise "Header info does not match current logger. Aborting!"
+                    raise ValueError("Header info does not match current logger. Aborting!")
         self.calibrated = calibrated
 
     def get_mean_GT(self, lim=None, ignore_mask=False):
@@ -1265,7 +1265,7 @@ class borehole:
             else:
                 return thawd, -9999.
         else:
-            raise "Thaw depth calculation based on full time series is not implemented!"
+            raise ValueError("Thaw depth calculation based on full time series is not implemented!")
 
     def calc_thaw_depth_all(self, date, fullts=False):
         """
@@ -1385,7 +1385,7 @@ class borehole:
             return thawd, 0
 
         else:
-            raise "Thaw depth calculation based on full time series is not implemented!"
+            raise ValueError("Thaw depth calculation based on full time series is not implemented!")
 
     def calc_ALT(self, lim=None, fullts=False, silent=False):
         """
@@ -1615,7 +1615,7 @@ class borehole:
             # maxd         holds index into depths for max thawed depth
 
         else:
-            raise "Full timeseries support in calc_ALT is not implemented yet!"
+            raise ValueError("Full timeseries support in calc_ALT is not implemented yet!")
 
     def calc_ALT_simple(self, lim=None, fullts=False, silent=False):
         """
@@ -1673,7 +1673,7 @@ class borehole:
             return (Yr, maxd, ALT_date)
 
         else:
-            raise "Full timeseries support in calc_ALT is not implemented yet!"
+            raise ValueError("Full timeseries support in calc_ALT is not implemented yet!")
 
     def get_depths(self, return_indices=False):
         """
@@ -1730,7 +1730,7 @@ class borehole:
             # elif type(end) in [dt.datetime]:
             #     end = end.date()
             # elif type(end) != dt.date:
-            #     raise "dates should be either ordinals, date or datetime objects"
+            #     raise ValueError("dates should be either ordinals, date or datetime objects")
             # 
             # start = copy.copy(end).replace(year=end.year - nyears)
             # start = start + dt.timedelta(days=1)
@@ -1743,7 +1743,7 @@ class borehole:
             return self.get_MeanGT(lim)
 
         else:
-            raise "Full timeseries support in get_MAGT is not implemented yet!"
+            raise ValueError("Full timeseries support in get_MAGT is not implemented yet!")
 
     def get_MeanGT(self, lim=None, fullts=False, ignore_mask=False):
         if not fullts:
@@ -1780,7 +1780,7 @@ class borehole:
 
             # Return sorted recarray
             return np.sort(meanGT, order='depth', axis=0)
-            # raise "Full timeseries support in get_MAGT is not implemented yet!"
+            # raise ValueError("Full timeseries support in get_MAGT is not implemented yet!")
 
     def get_MaxGT(self, lim=None, fullts=False, ignore_mask=False):
         if not fullts:
@@ -2308,7 +2308,7 @@ class borehole:
                     for did, d in enumerate(times): times[did] = d.date()
                 dates = np.append(dates, times)
             else:
-                raise 'only the default behaviour (''masked'') has been implemented!'
+                raise ValueError('only the default behaviour (''masked'') has been implemented!')
 
         return np.unique(dates)
 
@@ -3517,7 +3517,7 @@ def get_MAGTs(bholes, month=1, day=1, fullts=False):
 
             magt_dict[bname] = pd.DataFrame(np.hstack([magt, stdev, ndays]), index=years, columns=index)
     else:
-        raise "Full timeseries support in get_MAGTs is not implemented yet!"
+        raise ValueError("Full timeseries support in get_MAGTs is not implemented yet!")
 
     return magt_dict
 
@@ -3879,7 +3879,7 @@ def nyears2lim(end=None, nyears=1):
     elif type(end) in [dt.datetime]:
         end = end.date()
     elif type(end) != dt.date:
-        raise "dates should be either ordinals, date or datetime objects"
+        raise ValueError("dates should be either ordinals, date or datetime objects")
 
     start = copy.copy(end).replace(year=end.year - nyears)
     start = start + dt.timedelta(days=1)
@@ -3900,7 +3900,7 @@ def ensure_datetime_object(dat, date_type=False):
     elif type(dat) == str:
         dat = dateutil.parser.parse(dat, yearfirst=True, dayfirst=True)
     if type(dat) not in [dt.date, dt.datetime]:
-        raise "dates should be either ordinals, date or datetime objects"
+        raise ValueError("dates should be either ordinals, date or datetime objects")
 
     if date_type and type(dat) in [dt.datetime]:
         dat = dat.date()

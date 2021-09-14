@@ -467,7 +467,7 @@ class DMI_gridpoint(climate_data):
             try:
                 time = mpl.dates.num2date(time, tz=self.tzinfo)
             except:
-                raise "Bad input to calcMAAT"
+                raise ValueError("Bad input to calcMAAT")
 
         ## Get data from specified time series
         # time = self.__dict__[dataSeries]['AT'].limit(lim).times
@@ -477,7 +477,7 @@ class DMI_gridpoint(climate_data):
         #    try:
         #        time = mpl.dates.num2date(time, tz=self.tzinfo)
         #    except:
-        #        raise "Bad input to calcMAAT"
+        #        raise ValueError("Bad input to calcMAAT")
 
 
         # Make dictionary with years as keys and an array of the daily
@@ -1057,7 +1057,7 @@ class DMI_gridpoint(climate_data):
             try:
                 time = mpl.dates.num2date(time, tz=self.tzinfo)
             except:
-                raise "Bad input to calc_P_parameters"
+                raise ValueError("Bad input to calc_P_parameters")
 
         # Make dictionary with years as keys and an array of the daily
         # AT data for that year as value
