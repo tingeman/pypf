@@ -59,7 +59,7 @@ def reproject(inFN, inEPSG, outFN, outEPSG):
     # open the input data source and get the layer
     inDS = driver.Open(inFN, 0)
     if inDS is None:
-        print 'Could not open ' + inFN
+        print('Could not open ' + inFN)
         sys.exit(1)
     inLayer = inDS.GetLayer()
 
@@ -68,7 +68,7 @@ def reproject(inFN, inEPSG, outFN, outEPSG):
         driver.DeleteDataSource(outFN)
     outDS = driver.CreateDataSource(outFN)
     if outDS is None:
-        print 'Could not create ' + outFN
+        print('Could not create ' + outFN)
         sys.exit(1)
     outLayer = outDS.CreateLayer(os.path.basename(outFN)[:-4],
                                geom_type=inLayer.GetLayerDefn().GetGeomType())
@@ -124,7 +124,7 @@ def combineNeighbourFeatures(inFN, outFN, filterStr=None,
     if driverName == None:
         inDS = ogr.Open (inFN)
         if inDS is None:
-            print 'Could not open ' + inFN
+            print('Could not open ' + inFN)
             sys.exit(1)
         inLayer = inDS.GetLayer()
         driver = inDS.GetDriver()
@@ -134,7 +134,7 @@ def combineNeighbourFeatures(inFN, outFN, filterStr=None,
         # open the input data source and get the layer
         inDS = driver.Open(inFN, 0)
         if inDS is None:
-            print 'Could not open ' + inFN
+            print('Could not open ' + inFN)
             sys.exit(1)
         inLayer = inDS.GetLayer()
 
@@ -146,7 +146,7 @@ def combineNeighbourFeatures(inFN, outFN, filterStr=None,
         driver.DeleteDataSource(outFN)
     outDS = driver.CreateDataSource(outFN)
     if outDS is None:
-        print 'Could not create ' + outFN
+        print('Could not create ' + outFN)
         sys.exit(1)
 
     if filterStr != None:
@@ -202,7 +202,7 @@ def joinFeatureToLayer(inFeature, inLayer, clearAttributes=None):
             stop = True
             #print "Feature FID {0} joined with layer FID {1}".format(inFID,layerFIDs[0])
             joinGeom = joinGeom.Union(geom)
-            print "Feature FID {0} joined with layer FID {1}...".format(inFID,thisFID)
+            print("Feature FID {0} joined with layer FID {1}...".format(inFID,thisFID))
 #            if not joinGeom.Intersect(geom):
 #                print "Problem with union!!!"
 #                pdb.set_trace()
@@ -220,7 +220,7 @@ def joinFeatureToLayer(inFeature, inLayer, clearAttributes=None):
             
             newFeature.SetFID = thisFID
             
-            print "New feature created"
+            print("New feature created")
             
             # add the feature to the shapefile
             inLayer.SetFeature(newFeature)
@@ -229,13 +229,13 @@ def joinFeatureToLayer(inFeature, inLayer, clearAttributes=None):
 #            print "Geometry stored to feature"
 #            # update the feature to the layer
 #            inLayer.SetFeature(layerFeature)
-            print "Feature stored to Layer"
+            print("Feature stored to Layer")
             
         # destroy the output feature
         layerFeature.Destroy()
              
     if not stop:
-        print "Adding Feature FID {0} to layer as feature # {0}".format(featCount+1)
+        print("Adding Feature FID {0} to layer as feature # {0}".format(featCount+1))
         # add feature as new feature to layer
          
         inFeature.SetFID(-1)       
@@ -278,7 +278,7 @@ def joinLayerFeatures(inLayer, outLayer, FIDlim=None, clearAttributes=None,
     
     if FIDlim != None:
         def f(x): return x>=FIDlim[0] and x<=FIDlim[1] 
-        inFIDs = filter(f, inFIDs)    
+        inFIDs = list(filter(f, inFIDs))    
         
     
 #    geom = inFeature.GetGeometryRef()
@@ -291,7 +291,7 @@ def joinLayerFeatures(inLayer, outLayer, FIDlim=None, clearAttributes=None,
         
         thisFID = Feature.GetFID()
 
-        print "Processing FID {0}".format(thisFID)
+        print("Processing FID {0}".format(thisFID))
         FIDattrib = "{0}".format(thisFID)  
         # get the input geometry
         joinGeom = Feature.GetGeometryRef()
@@ -302,7 +302,7 @@ def joinLayerFeatures(inLayer, outLayer, FIDlim=None, clearAttributes=None,
         it = 0
         while join_flag == True:
             
-            print "Iteration {0}".format(it)
+            print("Iteration {0}".format(it))
             join_flag = False
             
             for fid in inFIDs[:]:        # [:] makes sure we iterate over a copy!
@@ -312,7 +312,7 @@ def joinLayerFeatures(inLayer, outLayer, FIDlim=None, clearAttributes=None,
 
                 
                 if joinGeom.Overlaps(geom):
-                    print "joining features"
+                    print("joining features")
                     # Remove the geometry fid from the list of FIDs
                     inFIDs.remove(fid)
                     
@@ -324,7 +324,7 @@ def joinLayerFeatures(inLayer, outLayer, FIDlim=None, clearAttributes=None,
                     
                     FIDattrib = FIDattrib+",{0}".format(fid)
                     
-                    print "Geometry of FID {0} joined with geometry of FID {1}...".format(thisFID,fid)
+                    print("Geometry of FID {0} joined with geometry of FID {1}...".format(thisFID,fid))
 
                                     
                 # Clean up
@@ -395,6 +395,6 @@ def filterAreas(geom, minArea):
     
     ndel = len(areas)-newGeom.GetGeometryCount()
     if ndel != 0:
-        print "{0} geometries removed".format(ndel)
+        print("{0} geometries removed".format(ndel))
     
     return newGeom    

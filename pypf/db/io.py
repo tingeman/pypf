@@ -81,19 +81,19 @@ class dlmread:
                                 # If number of columns not equal ncols do reg exp split
                                 if len(line2) != self.ncol:
                                     if verbose:
-                                        print "Line {0}, Trying re.split...".format(lid)
+                                        print("Line {0}, Trying re.split...".format(lid))
                                     line2 = re.split(reexp,line)
                                     # pdb.set_trace()
                                 # If line is not empty...
                                 if not line2 == ['']:
                                     if len(line2) > self.ncol:
                                         if verbose:
-                                            print "Line {0}, len(line2) > self.ncol, updating ncol".format(lid)
+                                            print("Line {0}, len(line2) > self.ncol, updating ncol".format(lid))
                                         self.ncol = len(line2)
                                         add_columns = True
                                     elif len(line2) < self.ncol:
                                         if verbose:
-                                            print "Line {0}, len(line2) < self.ncol, adding enpty entries".format(lid)
+                                            print("Line {0}, len(line2) < self.ncol, adding enpty entries".format(lid))
                                         # If line2 has less than ncol columns
                                         # add the missing columns as empty ("")
                                         #pdb.set_trace()
@@ -106,7 +106,7 @@ class dlmread:
 
                         if add_columns:
                             if verbose:
-                                print "Updating number of columns in new pass..."
+                                print("Updating number of columns in new pass...")
                             # If number of columns is not the same for all rows...
                             for line in self.data:
                                 # if line has fewer columns than ncol
@@ -119,10 +119,10 @@ class dlmread:
                     else:
                         self.data = None
                 except:
-                    print "Could not parse data file %s!" % fname
+                    print("Could not parse data file %s!" % fname)
                     pdb.set_trace()
             else:   # If zero columns found
-                print "No data read!"
+                print("No data read!")
                 self.data = []
 
         else:   # if dtype not specified as str
@@ -178,8 +178,8 @@ class dlmread:
                 lineSplit = tmp
             self.ncol = len(lineSplit)
         except:
-            print "Could not read number of columns from file"
-            print "Assuming one column!"
+            print("Could not read number of columns from file")
+            print("Assuming one column!")
             self.ncol = 1
 
 def test():
@@ -200,7 +200,7 @@ def test():
 
 def csv2dict(fname):
     a = csv2rec(fname)
-    keys = a.dtype.fields.keys()
+    keys = list(a.dtype.fields.keys())
     data = {}
     for key in keys:
         data[key] = a[key]

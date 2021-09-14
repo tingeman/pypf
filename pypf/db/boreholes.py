@@ -229,8 +229,8 @@ class Borehole:
         # 3.     Apply cal value to all data points
         # 4. If cal-value is not available, warn? or fail?
 
-        for cid in xrange(len(self.rawdata.columns)):
-            od = OrderedDict(zip(self.rawdata.columns.names, self.rawdata.columns[cid]))
+        for cid in range(len(self.rawdata.columns)):
+            od = OrderedDict(list(zip(self.rawdata.columns.names, self.rawdata.columns[cid])))
             # calid = (self.caldata['Channel']==od['SensorID']) & \
             #         (self.caldata['Depth']==od['CoordZ'])
             calid = (self.caldata['SensorID'] == od['SensorID'])
@@ -265,8 +265,8 @@ class Borehole:
         # 3.     Remove cal value to all data points
         # 4. If cal-value is not available, warn? or fail?
 
-        for cid in xrange(len(self.rawdata.columns)):
-            od = OrderedDict(zip(self.rawdata.columns.names, self.rawdata.columns[cid]))
+        for cid in range(len(self.rawdata.columns)):
+            od = OrderedDict(list(zip(self.rawdata.columns.names, self.rawdata.columns[cid])))
             #calid = (self.caldata['Channel']==od['SensorID']) & \
             #        (self.caldata['Depth']==od['CoordZ'])
             calid = (self.caldata['Channel'] == od['SensorID'])
@@ -492,7 +492,7 @@ class Borehole:
         with fname.open(mode='r') as f:
             lines = f.readlines()
 
-        print "\nApplying masks from file: {0}".format(fname)
+        print("\nApplying masks from file: {0}".format(fname))
             
         for line in lines:
             if line.startswith('#'):
@@ -506,7 +506,7 @@ class Borehole:
             if len(line) == 0:
                 continue  # line is empty, so continue
             
-            print line
+            print(line)
             dat = line.strip().strip(';').split(';')
             dat = [s.strip() for s in dat]
             date1 = dat[0]
@@ -553,7 +553,7 @@ class Borehole:
         c = self.rawdata.columns
         level_names = c.names
         level_values =  [list(c.get_level_values(id)) for id in range(len(c.names))]
-        od = OrderedDict(zip(level_names, level_values))
+        od = OrderedDict(list(zip(level_names, level_values)))
         
         # Convert OrderedDict into new MultiIndex:
         # mi = pd.MultiIndex.from_frame(pd.DataFrame(od))
@@ -583,7 +583,7 @@ class Borehole:
 
         # TODO: Masking in exported data
 
-        from StringIO import StringIO
+        from io import StringIO
 
         # Writing to a buffer
         # output = StringIO()
@@ -951,11 +951,11 @@ class Borehole:
          # TODO: TRANSLATE PLOT FUNCTION TO NEW MODULE - NOTHING DONE YET
 
 
-        if kwargs.has_key('axes'):
+        if 'axes' in kwargs:
             ax = kwargs.pop('axes')
-        elif kwargs.has_key('Axes'):
+        elif 'Axes' in kwargs:
             ax = kwargs.pop('Axes')
-        elif kwargs.has_key('ax'):
+        elif 'ax' in kwargs:
             ax = kwargs.pop('ax')
         else:
             fh = plt.figure(figsize=figsize)
@@ -989,7 +989,7 @@ class Borehole:
             # get copies of the data and times
             # TODO: Reconsider way to handle getting only ground temperatures
             data = self.daily_ts[lim[0]:lim[1]].iloc[:, did].values
-            ordinals = map(dt.datetime.toordinal, self.daily_ts[lim[0]:lim[1]].index)
+            ordinals = list(map(dt.datetime.toordinal, self.daily_ts[lim[0]:lim[1]].index))
 
             # TODO: Handle masked values
             #     if ignore_mask:
@@ -1037,7 +1037,7 @@ class Borehole:
             # TODO: Reconsider way to handle getting only ground temperatures
             data = self.rawdata[lim[0]:lim[1]].iloc[:, did].values
             #ordinals = map(dt.datetime.toordinal, self.rawdata[lim[0]:lim[1]].index)
-            ordinals = map(mpld.date2num, self.rawdata[lim[0]:lim[1]].index)
+            ordinals = list(map(mpld.date2num, self.rawdata[lim[0]:lim[1]].index))
             
 
             # TODO: Handle masked values
@@ -1129,11 +1129,11 @@ class Borehole:
         :param kwargs:
         :return:
         """
-        if kwargs.has_key('axes'):
+        if 'axes' in kwargs:
             ax = kwargs.pop('axes')
-        elif kwargs.has_key('Axes'):
+        elif 'Axes' in kwargs:
             ax = kwargs.pop('Axes')
-        elif kwargs.has_key('ax'):
+        elif 'ax' in kwargs:
             ax = kwargs.pop('ax')
         else:
             fh = plt.figure()
@@ -1290,32 +1290,32 @@ class Borehole:
         if args is None:
             args = dict()
 
-        if not args.has_key('plotMeanGT'):
+        if 'plotMeanGT' not in args:
             args['plotMeanGT'] = plotMeanGT
-        if kwargs.has_key('title'):
+        if 'title' in kwargs:
             args['title'] = kwargs.pop('title')
-        if not args.has_key('title'):
+        if 'title' not in args:
             args['title'] = defaultargs['title']
-        if not args.has_key('maxGT'):
+        if 'maxGT' not in args:
             args['maxGT'] = defaultargs['maxGT']
-        if not args.has_key('minGT'):
+        if 'minGT' not in args:
             args['minGT'] = defaultargs['minGT']
-        if not args.has_key('MeanGT'):
+        if 'MeanGT' not in args:
             args['MeanGT'] = defaultargs['MeanGT']
-        if not args.has_key('fill'):
+        if 'fill' not in args:
             args['fill'] = defaultargs['fill']
-        if not args.has_key('vline'):
+        if 'vline' not in args:
             args['vline'] = defaultargs['vline']
-        if not args.has_key('grid'):
+        if 'grid' not in args:
             args['grid'] = defaultargs['grid']
         
         figsize = kwargs.pop('figsize', (6.4,4.8))
 
-        if kwargs.has_key('axes'):
+        if 'axes' in kwargs:
             ax = kwargs.pop('axes')
-        elif kwargs.has_key('Axes'):
+        elif 'Axes' in kwargs:
             ax = kwargs.pop('Axes')
-        elif kwargs.has_key('ax'):
+        elif 'ax' in kwargs:
             ax = kwargs.pop('ax')
         else:
             fh = plt.figure(figsize=figsize)
@@ -1371,10 +1371,10 @@ class Borehole:
         #     thisY = np.append(maxGT['depth'][did], minGT['depth'][did][::-1])
         #     ax.fill(thisX, thisY, **args['fill'])  # facecolor=fclr,edgecolor='none')
         
-        if args.has_key('vline') and args['vline'] is not None:
+        if 'vline' in args and args['vline'] is not None:
             ax.axvline(x=0, **args['vline'])
 
-        if args.has_key('plotMeanGT') and args['plotMeanGT']:
+        if 'plotMeanGT' in args and args['plotMeanGT']:
             # get maximum values within time limits
             meanGT = self.get_MeanGT(lim=lim, fullts=fullts, ignore_mask=ignore_mask)
 
@@ -1399,7 +1399,7 @@ class Borehole:
         if xlim is not None:
             ax.set_xlim(xlim)
 
-        if args.has_key('grid') and args['grid'] is not None:
+        if 'grid' in args and args['grid'] is not None:
             ax.grid(True, **args['grid'])
 
         ax.get_xaxis().tick_top()
@@ -1446,11 +1446,11 @@ class Borehole:
 
         fh = None
 
-        if kwargs.has_key('axes'):
+        if 'axes' in kwargs:
             ax = kwargs.pop('axes')
-        elif kwargs.has_key('Axes'):
+        elif 'Axes' in kwargs:
             ax = kwargs.pop('Axes')
-        elif kwargs.has_key('ax'):
+        elif 'ax' in kwargs:
             ax = kwargs.pop('ax')
         else:
             fh = plt.figure(figsize=figsize, facecolor=figBG)
@@ -1486,7 +1486,7 @@ class Borehole:
             # get copies of the data and times
             # TODO: Reconsider way to handle getting only ground temperatures
             data = self.daily_ts[lim[0]:lim[1]].iloc[:, did].values
-            ordinals = map(dt.datetime.toordinal, self.daily_ts[lim[0]:lim[1]].index)
+            ordinals = list(map(dt.datetime.toordinal, self.daily_ts[lim[0]:lim[1]].index))
             #depths = self.daily_ts.columns.get_level_values('CoordZ')[did]
             #depths = depths[depths >= 0]
             depths = np.array(depths)

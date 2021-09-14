@@ -1,5 +1,5 @@
 import pydap
-from ClimateData import *
+from .ClimateData import *
 
 
 
@@ -33,32 +33,32 @@ class DMI_gridpoint(climate_data):
         # Get timeseries instances as dictionaries
 
         odict['raw'] = []
-        if self.__dict__.has_key('raw'):
-            for key, ts in self.raw.items():
+        if 'raw' in self.__dict__:
+            for key, ts in list(self.raw.items()):
                 if ts != None:
                     odict['raw'].append((key, ts.__getstate__()))
                 else:
                     odict['raw'].append((key, None))
 
         odict['daily'] = []
-        if self.__dict__.has_key('daily'):
-            for key, ts in self.daily.items():
+        if 'daily' in self.__dict__:
+            for key, ts in list(self.daily.items()):
                 if ts != None:
                     odict['daily'].append((key, ts.__getstate__()))
                 else:
                     odict['daily'].append((key, None))
 
         odict['patched'] = []
-        if self.__dict__.has_key('patched'):
-            for key, ts in self.patched.items():
+        if 'patched' in self.__dict__:
+            for key, ts in list(self.patched.items()):
                 if ts != None:
                     odict['patched'].append((key, ts.__getstate__()))
                 else:
                     odict['patched'].append((key, None))
 
         odict['scaled'] = []
-        if self.__dict__.has_key('scaled'):
-            for key, ts in self.scaled.items():
+        if 'scaled' in self.__dict__:
+            for key, ts in list(self.scaled.items()):
                 if ts != None:
                     odict['scaled'].append((key, ts.__getstate__()))
                 else:
@@ -77,13 +77,13 @@ class DMI_gridpoint(climate_data):
         scaled = sdict.pop('scaled', None)
         self.__dict__.update(sdict)  # update attributes
 
-        if not self.__dict__.has_key('raw'):
+        if 'raw' not in self.__dict__:
             self.raw = {}
-        if not self.__dict__.has_key('daily'):
+        if 'daily' not in self.__dict__:
             self.daily = {}
-        if not self.__dict__.has_key('patched'):
+        if 'patched' not in self.__dict__:
             self.patched = {}
-        if not self.__dict__.has_key('scaled'):
+        if 'scaled' not in self.__dict__:
             self.scaled = {}
 
         if raw != None and type(raw) == list:
@@ -177,7 +177,7 @@ class DMI_gridpoint(climate_data):
                 os.makedirs(os.path.dirname(fname))
 
         if not force_reload and os.path.isfile(fname):
-            print 'Loading from file...', fname
+            print('Loading from file...', fname)
             with open(fname, "rb") as fh:
                 data = pickle.load(fh)
 
@@ -187,32 +187,32 @@ class DMI_gridpoint(climate_data):
 
         pdb.set_trace()
 
-        if not data.has_key('time'):
+        if 'time' not in data:
             data['epoch'] = np.array([])
             data['rawtime'] = np.array([])
             data['time'] = np.array([])
 
-            print 'acquiring data from DAP server...'
+            print('acquiring data from DAP server...')
 
             for id, p in enumerate(periods):
-                print "Opening DAP source for reading ..."
+                print("Opening DAP source for reading ...")
                 tmp.append(pydap.client.open('http://ensemblesrt3.dmi.dk/cgi-bin/' +
                                              'nph-dods/data/klimagroenland/daily/SURF/' +
                                              climSet + '_' + p + '.nc.gz'))
 
-                print 'Getting times for the period {0}...'.format(p)
+                print('Getting times for the period {0}...'.format(p))
                 data['epoch'] = np.append(data['epoch'],
                                           dateutil.parser.parse(tmp[id]['time'].units[12:]))
                 rawtime = tmp[id]['time'][:]
 
-                print 'Getting {0} time steps'.format(p)
+                print('Getting {0} time steps'.format(p))
                 tid = 0
                 for t in rawtime:
                     data['time'] = np.append(data['time'], data['epoch'][-1] +
                                              dt.timedelta(hours=t))
                     if tid == 100:
                         tid = 0
-                        print "rawtime: {0}".format(t)
+                        print("rawtime: {0}".format(t))
                     else:
                         tid += 1
 
@@ -221,41 +221,41 @@ class DMI_gridpoint(climate_data):
                 dataChanged = True
 
         if dataChanged:
-            print 'Saving data...', fname
+            print('Saving data...', fname)
             fh = open(fname, 'wb')
             pickle.dump(data, fh, pickle.HIGHEST_PROTOCOL)
             fh.close()
             dataChanged = False
 
-        if not data.has_key(climSet):
+        if climSet not in data:
             data[climSet] = np.array([])
-            print 'Getting ' + climSet + '...'
+            print('Getting ' + climSet + '...')
 
             for id, p in enumerate(periods):
                 if not len(tmp) >= id + 1:
-                    print "Opening DAP source for reading ..."
+                    print("Opening DAP source for reading ...")
                     tmp.append(pydap.client.open('http://ensemblesrt3.dmi.dk/cgi-bin/' +
                                                  'nph-dods/data/klimagroenland/daily/SURF/' +
                                                  climSet + '_' + p + '.nc.gz'))
 
-                print 'Getting {0} for the period {1}...'.format(climSet, p)
+                print('Getting {0} for the period {1}...'.format(climSet, p))
                 data[climSet] = np.append(data[climSet],
                                           tmp[id][climKey][:, 0,
                                           coordsID[0], coordsID[1]])
 
-                if not data.has_key('lon'):
+                if 'lon' not in data:
                     data['lon'] = tmp[id]['lon'][coordsID[0], coordsID[1]]
-                if not data.has_key('lat'):
+                if 'lat' not in data:
                     data['lat'] = tmp[id]['lat'][coordsID[0], coordsID[1]]
-                if not data.has_key('lon_bounds'):
+                if 'lon_bounds' not in data:
                     data['lon_bounds'] = tmp[id]['lon_bounds'][coordsID[0], coordsID[1]]
-                if not data.has_key('lat_bounds'):
+                if 'lat_bounds' not in data:
                     data['lat_bounds'] = tmp[id]['lat_bounds'][coordsID[0], coordsID[1]]
 
             dataChanged = True
 
         if dataChanged:
-            print 'Saving data...', fname
+            print('Saving data...', fname)
             fh = open(fname, 'wb')
             pickle.dump(data, fh, pickle.HIGHEST_PROTOCOL)
             fh.close()
@@ -324,8 +324,8 @@ class DMI_gridpoint(climate_data):
                     full_output=0, disp=1, retall=0, callback=None)
 
         # Print results
-        print "Optimized parameters: a={0}, b={1}".format(xopt[0], xopt[1])
-        print self.gridpoint
+        print("Optimized parameters: a={0}, b={1}".format(xopt[0], xopt[1]))
+        print(self.gridpoint)
         self.print_stats()
 
     def permute_timeseries(self, arr, dataSeries='raw', dataKey='P', month=8, day=1):
@@ -484,7 +484,7 @@ class DMI_gridpoint(climate_data):
         # AT data for that year as value
         years = {}
         for id, t in enumerate(time):
-            if years.has_key(t.year):
+            if t.year in years:
                 years[t.year] = np.append(years[t.year], data[id])
             else:
                 years[t.year] = np.array(data[id])
@@ -643,14 +643,14 @@ class DMI_gridpoint(climate_data):
 
         if rtype.lower() == 'linear':
             (a_s, b_s, r, tt, stderr) = scp_stats.linregress(time + deltat, data)
-            print('regression: a=%.8f b=%.8f, std error= %.3f' % (a_s, b_s, stderr))
+            print(('regression: a=%.8f b=%.8f, std error= %.3f' % (a_s, b_s, stderr)))
             print('data = a * ordinal + b')
             print('Data point associated with mid-point of year')
         else:
             raise ValueError('Unknown regression type specified')
 
-        MAATtrend = dict(zip(['a_s', 'b_s', 'r', 'tt', 'stderr', 'offset'],
-                             (a_s, b_s, r, tt, stderr, offset)))
+        MAATtrend = dict(list(zip(['a_s', 'b_s', 'r', 'tt', 'stderr', 'offset'],
+                             (a_s, b_s, r, tt, stderr, offset))))
 
         if plot:
             figBG = 'w'  # the plt.figure background color
@@ -763,38 +763,38 @@ class DMI_gridpoint(climate_data):
                                                              data['FDD'] / data['days_in_year'])
             print('Freezing degree days trend:')
             # print('regression: a=%.8f b=%.8f, std error= %.3f' % (a_s,b_s,stderr))
-            print('regression: a=%.8f b=%.8f, r^2= %.3f' % (a_s, b_s, r))
+            print(('regression: a=%.8f b=%.8f, r^2= %.3f' % (a_s, b_s, r)))
             print('data = a * ordinal + b')
             print('Data point associated with mid-point of year')
             print('')
             offset = data['FDD'].mean() / data['ndays'].mean()
-            DDtrends['FDD'] = dict(zip(['a_s', 'b_s', 'r', 'tt', 'stderr', 'offset'],
-                                       (a_s, b_s, r, tt, stderr, offset)))
+            DDtrends['FDD'] = dict(list(zip(['a_s', 'b_s', 'r', 'tt', 'stderr', 'offset'],
+                                       (a_s, b_s, r, tt, stderr, offset))))
 
             # TDD trend
             (a_s, b_s, r, tt, stderr) = scp_stats.linregress(time + deltat,
                                                              data['TDD'] / data['days_in_year'])
             print('Thawing degree days trend:')
             # print('regression: a=%.8f b=%.8f, std error= %.3f' % (a_s,b_s,stderr))
-            print('regression: a=%.8f b=%.8f, r^2= %.3f' % (a_s, b_s, r))
+            print(('regression: a=%.8f b=%.8f, r^2= %.3f' % (a_s, b_s, r)))
             print('data = a * ordinal + b')
             print('Data point associated with mid-point of year')
             print('')
             offset = data['TDD'].mean() / data['ndays'].mean()
-            DDtrends['TDD'] = dict(zip(['a_s', 'b_s', 'r', 'tt', 'stderr', 'offset'],
-                                       (a_s, b_s, r, tt, stderr, offset)))
+            DDtrends['TDD'] = dict(list(zip(['a_s', 'b_s', 'r', 'tt', 'stderr', 'offset'],
+                                       (a_s, b_s, r, tt, stderr, offset))))
 
             # MAAT trend
             (a_s, b_s, r, tt, stderr) = scp_stats.linregress(time + deltat, data['MAAT'])
             print('MAAT trend:')
             # print('regression: a=%.8f b=%.8f, std error= %.3f' % (a_s,b_s,stderr))
-            print('regression: a=%.8f b=%.8f, r^2= %.3f' % (a_s, b_s, r))
+            print(('regression: a=%.8f b=%.8f, r^2= %.3f' % (a_s, b_s, r)))
             print('data = a * ordinal + b')
             print('Data point associated with mid-point of year')
             print('')
             offset = data['MAAT'].mean() / data['ndays'].mean()
-            DDtrends['MAAT'] = dict(zip(['a_s', 'b_s', 'r', 'tt', 'stderr', 'offset'],
-                                        (a_s, b_s, r, tt, stderr, offset)))
+            DDtrends['MAAT'] = dict(list(zip(['a_s', 'b_s', 'r', 'tt', 'stderr', 'offset'],
+                                        (a_s, b_s, r, tt, stderr, offset))))
 
         return DDtrends
 
@@ -809,13 +809,13 @@ class DMI_gridpoint(climate_data):
         Makes a plot of the resulting MAAT time series, if arg plot=True
         """
 
-        if not self.__dict__[dataSeries].has_key('ATstats'):
+        if 'ATstats' not in self.__dict__[dataSeries]:
             self.calc_AT_parameters(dataSeries=dataSeries, lim=lim, plot=False)
 
         # Calculate trend information for MAAT, FDD and TDD
-        if not self.__dict__.has_key('_detrend'):
+        if '_detrend' not in self.__dict__:
             self._detrend = dict()
-        if not self._detrend.has_key('regr'):
+        if 'regr' not in self._detrend:
             self._detrend['DDtrends'] = \
                 self.regress_DD(rtype='linear',
                                 dataSeries=dataSeries,
@@ -826,7 +826,7 @@ class DMI_gridpoint(climate_data):
 
         # Construct timeseries of the FDD/TDD trends
 
-        print "calculate trends and detrend"
+        print("calculate trends and detrend")
         # ydict = self._detrend['AT'].split_years()
         ydict = self.__dict__[dataSeries]['AT'].limit(lim=lim).split_years()
         for id, y in enumerate(sorted(ydict.keys())):
@@ -847,13 +847,13 @@ class DMI_gridpoint(climate_data):
                                 (DDtrends['FDD']['offset'] - FDD_trend) / \
                                 (ATstats['FDD'][id] / ATstats['ndays'][id]) + 1)
 
-        tslist = ydict.values()
+        tslist = list(ydict.values())
         self._detrend['AT'] = tslist[0]
         self._detrend['AT'].merge(tslist[1:], mtype='forced')
         self._detrend['AT'].sort_chronologically()
 
         if plot == True:
-            print "perform regression and plot"
+            print("perform regression and plot")
             MAATtrend = self.regress_MAAT(plot=True,
                                           lab1='Data', lab2='Time',
                                           tit='After detrending',
@@ -908,12 +908,12 @@ class DMI_gridpoint(climate_data):
                 ValueError('You must specify the DDtrends to apply!' + \
                            '   Aborting...')
             if ATstats == None:
-                print "Calculating AT statistics"
+                print("Calculating AT statistics")
                 ATstats = self.calc_AT_parameters(dataSeries, plot=False,
                                                   lim=lim)
         except:
-            if self.__dict__.has_key(dataSeries) and \
-                    self.__dict__[dataSeries].has_key('AT'):
+            if dataSeries in self.__dict__ and \
+                    'AT' in self.__dict__[dataSeries]:
                 ts = self.__dict__[dataSeries]['AT']
             else:
                 KeyError('Specified timeseries not found' + \
@@ -921,8 +921,8 @@ class DMI_gridpoint(climate_data):
 
             # Check trend information
             if DDtrends == None:
-                if self.__dict__.has_key(dataSeries) and \
-                        self.__dict__[dataSeries].has_key('DDtrends'):
+                if dataSeries in self.__dict__ and \
+                        'DDtrends' in self.__dict__[dataSeries]:
                     DDtrends = self._detrend['DDtrends']
                 else:
                     KeyError('Regression parameters have not been calculated' + \
@@ -937,12 +937,12 @@ class DMI_gridpoint(climate_data):
             # else:
             #    ATstats = self.__dict__[dataSeries]['ATstats']
             if ATstats == None:
-                print "Calculating AT statistics"
+                print("Calculating AT statistics")
                 ATstats = self.calc_AT_parameters(dataSeries=dataSeries,
                                                   lim=lim, plot=False)
         # Construct timeseries of the FDD/TDD trends
 
-        print "calculate trends and retrend"
+        print("calculate trends and retrend")
         # ydict = self._detrend['AT'].split_years()
         ydict = ts.limit(lim=lim).split_years()
         for id, y in enumerate(sorted(ydict.keys())):
@@ -963,13 +963,13 @@ class DMI_gridpoint(climate_data):
                                 -(DDtrends['FDD']['offset'] - FDD_trend) / \
                                 (ATstats['FDD'][id] / ATstats['ndays'][id]) + 1)
 
-        tslist = ydict.values()
+        tslist = list(ydict.values())
         ts2 = tslist[0]
         ts2.merge(tslist[1:], mtype='forced')
         ts2.sort_chronologically()
 
         if plot:
-            print "perform regression and plot"
+            print("perform regression and plot")
             MAATtrend = self.regress_MAAT(plot=True,
                                           lab1='Data', lab2='Time',
                                           tit='After reaplying trend',
@@ -1063,7 +1063,7 @@ class DMI_gridpoint(climate_data):
         # AT data for that year as value
         years = {}
         for id, t in enumerate(time):
-            if years.has_key(t.year):
+            if t.year in years:
                 years[t.year] = np.append(years[t.year], data[id])
             else:
                 years[t.year] = np.array(data[id])
@@ -1230,14 +1230,14 @@ class DMI_gridpoint(climate_data):
 
         if rtype.lower() == 'linear':
             (a_s, b_s, r, tt, stderr) = scp_stats.linregress(time + deltat, data)
-            print('regression: a=%.8f b=%.8f, std error= %.3f' % (a_s, b_s, stderr))
+            print(('regression: a=%.8f b=%.8f, std error= %.3f' % (a_s, b_s, stderr)))
             print('data = a * ordinal + b')
             print('Data point associated with mid-point of year')
         else:
             raise ValueError('Unknown regression type specified')
 
-        MAPtrend = dict(zip(['a_s', 'b_s', 'r', 'tt', 'stderr', 'offset'],
-                            (a_s, b_s, r, tt, stderr, offset)))
+        MAPtrend = dict(list(zip(['a_s', 'b_s', 'r', 'tt', 'stderr', 'offset'],
+                            (a_s, b_s, r, tt, stderr, offset))))
 
         if plot:
             figBG = 'w'  # the plt.figure background color
@@ -1319,13 +1319,13 @@ class DMI_gridpoint(climate_data):
         Makes a plot of the resulting MAP time series, if arg plot=True
         """
 
-        if not self.__dict__[dataSeries].has_key('Pstats'):
+        if 'Pstats' not in self.__dict__[dataSeries]:
             self.calc_P_parameters(dataSeries=dataSeries, lim=lim, plot=False)
 
         # Calculate trend information for MAAT, FDD and TDD
-        if not self.__dict__.has_key('_detrend'):
+        if '_detrend' not in self.__dict__:
             self._detrend = dict()
-        if not self._detrend.has_key('regr'):
+        if 'regr' not in self._detrend:
             self._detrend['MAPtrend'] = \
                 self.regress_MAP(rtype='linear',
                                  dataSeries=dataSeries,
@@ -1336,7 +1336,7 @@ class DMI_gridpoint(climate_data):
 
         # pdb.set_trace()
 
-        print "calculate trends and detrend"
+        print("calculate trends and detrend")
 
         ydict = self.__dict__[dataSeries]['P'].limit(lim=lim).split_years()
         for id, y in enumerate(sorted(ydict.keys())):
@@ -1355,7 +1355,7 @@ class DMI_gridpoint(climate_data):
                                 (MAPtrend['offset'] - trend) / \
                                 (Pstats['MAP'][id]) + 1, 0)
 
-        tslist = ydict.values()
+        tslist = list(ydict.values())
         self._detrend['P'] = tslist[0]
         self._detrend['P'].merge(tslist[1:], mtype='forced')
         self._detrend['P'].sort_chronologically()
@@ -1370,7 +1370,7 @@ class DMI_gridpoint(climate_data):
         # self._detrend['P'] = ts
 
         if plot == True:
-            print "perform regression and plot"
+            print("perform regression and plot")
             MAPtrend = self.regress_MAP(plot=True,
                                         lab1='Data', lab2='Time',
                                         tit='After detrending',
@@ -1408,12 +1408,12 @@ class DMI_gridpoint(climate_data):
                 ValueError('You must specify the MAPtrend to apply!' + \
                            '   Aborting...')
             if Pstats == None:
-                print "Calculating P statistics"
+                print("Calculating P statistics")
                 Pstats = self.calc_P_parameters(dataSeries, plot=False,
                                                 lim=lim)
         except:
-            if self.__dict__.has_key(dataSeries) and \
-                    self.__dict__[dataSeries].has_key('P'):
+            if dataSeries in self.__dict__ and \
+                    'P' in self.__dict__[dataSeries]:
                 ts = self.__dict__[dataSeries]['P'].limit(lim)
             else:
                 KeyError('Specified timeseries not found' + \
@@ -1421,8 +1421,8 @@ class DMI_gridpoint(climate_data):
 
             # Check trend information
             if MAPtrend == None:
-                if self.__dict__.has_key(dataSeries) and \
-                        self.__dict__[dataSeries].has_key('MAPtrend'):
+                if dataSeries in self.__dict__ and \
+                        'MAPtrend' in self.__dict__[dataSeries]:
                     MAPtrend = self._detrend['MAPtrend']
                 else:
                     KeyError('Regression parameters have not been calculated' + \
@@ -1430,13 +1430,13 @@ class DMI_gridpoint(climate_data):
 
                     # Check timeseries statistics
             if Pstats == None:
-                print "Calculating P statistics"
+                print("Calculating P statistics")
                 Pstats = self.calc_P_parameters(dataSeries=dataSeries,
                                                 lim=lim, plot=False)
 
         # Construct timeseries of the FDD/TDD trends
 
-        print "calculate trends and retrend"
+        print("calculate trends and retrend")
 
         ydict = ts.split_years()
         for id, y in enumerate(sorted(ydict.keys())):
@@ -1455,7 +1455,7 @@ class DMI_gridpoint(climate_data):
                                 -(MAPtrend['offset'] - trend) / \
                                 (Pstats['MAP'][id]) + 1, 0)
 
-        tslist = ydict.values()
+        tslist = list(ydict.values())
         ts2 = tslist[0]
         ts2.merge(tslist[1:], mtype='forced')
         ts2.sort_chronologically()
@@ -1466,7 +1466,7 @@ class DMI_gridpoint(climate_data):
         # ts.data = np.where(ts.data>=0, ts.data+trendline-MAPtrend['offset'], 0)
 
         if plot:
-            print "perform regression and plot"
+            print("perform regression and plot")
             MAPtrend = self.regress_MAP(plot=True,
                                         lab1='Data', lab2='Time',
                                         tit='After reaplying trend',
@@ -1510,11 +1510,11 @@ class test_DMI_gridpoint(DMI_gridpoint):
         data = np.array(data).reshape([-1, 1])
 
         self.data['P'] = myts(data, times)
-        print "plotting original series"
+        print("plotting original series")
         plt.plot_date(times, data, '-g')
         permutations = n_permutations(self.data['P'].get_year_list()[0:-1], 5)
         self.permutations = permutations
         for p in permutations:
             ts = self.permute_timeseries(p)
-            print "plotting permuted series"
+            print("plotting permuted series")
             plt.plot_date(ts.times, ts.data, '-r')

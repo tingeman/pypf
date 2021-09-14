@@ -23,5 +23,6 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
+*.bak
 
 /.idea/*

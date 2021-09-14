@@ -223,7 +223,7 @@ def plot_Greenland(ax=None, corners=None, resolution='l',cities='all', \
     if plot_icecap:
         PlotIcecap(basemap=myEDC.map, ax=myEDC.ax, corners=corners)
     
-    print 'Drawing cities...'
+    print('Drawing cities...')
     
     myEDC.GreenlandCities = {
          'Ilulissat':     np.array((-51.100000, 69.216667)),
@@ -232,13 +232,13 @@ def plot_Greenland(ax=None, corners=None, resolution='l',cities='all', \
          'Nuuk':          np.array((-51.742632, 64.170284))}
 
     if cities == 'all':
-        myEDC.plotPoints(np.array(myEDC.GreenlandCities.values())[:, 0],
-            np.array(myEDC.GreenlandCities.values())[:, 1], 
+        myEDC.plotPoints(np.array(list(myEDC.GreenlandCities.values()))[:, 0],
+            np.array(list(myEDC.GreenlandCities.values()))[:, 1], 
                      'or', ms=8, picker=8, 
-                     names=myEDC.GreenlandCities.keys(), 
+                     names=list(myEDC.GreenlandCities.keys()), 
                      tag='cities')
         
-        for city in myEDC.GreenlandCities.keys():
+        for city in list(myEDC.GreenlandCities.keys()):
             x, y = myEDC.map(myEDC.GreenlandCities[city][0], 
                              myEDC.GreenlandCities[city][1])
             ax.text(x, y, city+'$\quad $', 
@@ -303,7 +303,7 @@ def plotGrlCities(cities='all', names=True, basemap=None, corners='Greenland', r
         ax = basemap.ax
 
     
-    print 'Drawing cities...'
+    print('Drawing cities...')
     
     GreenlandCities = {
          'Ilulissat':     dict(coords=np.array((-51.100000, 69.216667)),
@@ -350,10 +350,10 @@ def plotGrlCities(cities='all', names=True, basemap=None, corners='Greenland', r
     
 
     if type(cities) == str and cities == 'all':
-        plotCities = GreenlandCities.keys()
+        plotCities = list(GreenlandCities.keys())
     elif type(cities) == dict:
         GreenlandCities = copy.deepcopy(cities)
-        plotCities = GreenlandCities.keys()
+        plotCities = list(GreenlandCities.keys())
         
 #        myEDC.plotPoints(np.array(myEDC.GreenlandCities.values())[:, 0],
 #            np.array(myEDC.GreenlandCities.values())[:, 1], 
@@ -403,7 +403,7 @@ def print_file_info(fname):
     # open the data source
     datasource = driver.Open(fname, 0)
     if datasource is None:
-        print 'Could not open file'
+        print('Could not open file')
         sys.exit(1)
 
     # get the data layer
@@ -415,7 +415,7 @@ def print_file_info(fname):
         cnt = cnt + 1
         feature.Destroy()
         feature = layer.GetNextFeature()
-    print 'There are ' + str(cnt) + ' features'
+    print('There are ' + str(cnt) + ' features')
     # close the data source
     datasource.Destroy()
 
@@ -927,7 +927,7 @@ def plotShpFile(shpFN, basemap=None, map=None, mapSR=None, plotspecs=None, ax=No
                     else:
                         fieldval = F.GetFieldAsString(field)
                     
-                    if fieldval in specs.keys():
+                    if fieldval in list(specs.keys()):
                         #pdb.set_trace()
                         kwargs.update(specs[fieldval])
                         #print fieldval
@@ -997,7 +997,7 @@ def plotFeature(F, mapSRS=None, SRStransform=None, basemap=None, ax=None,
     if G2 != None:
         G = G.intersection(G2)
     
-    attributes = F.items()
+    attributes = list(F.items())
     attributes['FID'] = F.GetFID()
             
     plotGeometry(G, basemap=basemap, ax=ax, G2=G2, noconv=noconv, 
@@ -1009,10 +1009,10 @@ def plotFeature(F, mapSRS=None, SRStransform=None, basemap=None, ax=None,
 
 def onGeometryPick(event):
     thisGeometry = event.artist
-    print 'pypf.mapping.plot:onGeometryPick:'
-    print '  Geometry: {0}'.format(thisGeometry)
+    print('pypf.mapping.plot:onGeometryPick:')
+    print('  Geometry: {0}'.format(thisGeometry))
     try:
-        print '  Attributes: {0}'.format(thisGeometry.attributes)
+        print('  Attributes: {0}'.format(thisGeometry.attributes))
     except:
         pass
     

@@ -32,7 +32,7 @@ class MyMap:
         return
 
     def onpick(self, event):
-        print 'pypf.mapping.maps:onGeometryPick:'
+        print('pypf.mapping.maps:onGeometryPick:')
         if isinstance(event.artist, plt.Line2D):
             thisline = event.artist
             
@@ -43,19 +43,19 @@ class MyMap:
             try:
                 self.lastClick = thisline.coordsID[ind].flatten()
             except AttributeError:
-                print '  Line has no coordsID attribute...'
+                print('  Line has no coordsID attribute...')
             else:
-                print '  onpick1 line: ', self.lastClick
+                print('  onpick1 line: ', self.lastClick)
             
             try:
                 thisline.names
             except AttributeError:
-                print '  Line has no names attribute...'
+                print('  Line has no names attribute...')
             else:
                 if len(thisline.names) == 1:
-                    print '  Name: ', thisline.names
+                    print('  Name: ', thisline.names)
                 elif len(thisline.names) == len(xdata):
-                    print '  Name: ', np.take(thisline.names, ind)
+                    print('  Name: ', np.take(thisline.names, ind))
             
             #try:
             #    thisline.tag
@@ -72,27 +72,27 @@ class MyMap:
             patch = event.artist
             vertsxy = patch.get_verts()
             lons, lats = self.map(vertsxy[0], vertsxy[1], inverse=True)
-            print '  onpick1 patch :', zip(lons, lats)
+            print('  onpick1 patch :', list(zip(lons, lats)))
         elif isinstance(event.artist, plt.Text):
             text = event.artist
-            print '  onpick1 text: ', text.get_text()
+            print('  onpick1 text: ', text.get_text())
         
         return False
     
     def on_key_press(self, event):
         " Allow for rotation etc of text elements"
-        print 'pypf:mapping:maps:on_key_press:'
+        print('pypf:mapping:maps:on_key_press:')
         
         if event.key == 't' and len(self.ax.texts) > 0:
-            tstr = [u'{']
+            tstr = ['{']
             for t in self.ax.texts:
                 txt = t.get_text()
                 rot = t.get_rotation()
                 pos = t.get_position()
-                tstr.append(u"    '{0}': {{'rotation':{1:3.0f}, 'x':{2:.2f}, 'y':{3:.2f}}},".format(txt, rot, pos[0], pos[1]))
-            tstr.append(u'}')
+                tstr.append("    '{0}': {{'rotation':{1:3.0f}, 'x':{2:.2f}, 'y':{3:.2f}}},".format(txt, rot, pos[0], pos[1]))
+            tstr.append('}')
             
-            print u'\n'.join(tstr)
+            print('\n'.join(tstr))
 
         return False
    

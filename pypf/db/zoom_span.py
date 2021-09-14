@@ -122,7 +122,7 @@ class AxesCallbacks:
 
         self.toggletxt = self.figure.text(0.8,0.02,'Toggle state = {0}'.format(self.toggle_key_dict[0][3]), ha='right')
 
-        for key,val in toggle_key_dict.items():
+        for key,val in list(toggle_key_dict.items()):
             self.toggle_key_dict[key] = val
 
         self.figure.canvas.mpl_connect('key_press_event', self.on_key)
@@ -143,7 +143,7 @@ class AxesCallbacks:
         lines = ax.lines
         if len(lines) != 0:
             for l in lines:
-                if l.__dict__.has_key('tag') and l.tag == 'dataseries':
+                if 'tag' in l.__dict__ and l.tag == 'dataseries':
                     xd = l.get_xdata()
 
                     try:
@@ -175,7 +175,7 @@ class AxesCallbacks:
                 yl[1] = yl[1]+abs(yl[1]-yl[0])*0.02
                 ax.set_ylim(yl)
             else:
-                print "ymnx is empty"
+                print("ymnx is empty")
 
 
 
@@ -192,7 +192,7 @@ class AxesCallbacks:
         lines = ax.lines
         if len(lines) != 0:
             for l in lines:
-                if l.__dict__.has_key('tag') and l.tag=='dataseries':
+                if 'tag' in l.__dict__ and l.tag=='dataseries':
                     xd = l.get_xdata()
                     if xmnx ==[]:
                         xmnx = [min(xd), max(xd)]
@@ -255,7 +255,7 @@ class AxesCallbacks:
             self.toggle_key_dict[self.current_state][2]()
 
             # Update state
-            if self.current_state == len(self.toggle_key_dict.keys())-1:
+            if self.current_state == len(list(self.toggle_key_dict.keys()))-1:
                 self.current_state = 0
             else:
                 self.current_state += 1
@@ -266,18 +266,18 @@ class AxesCallbacks:
             self.toggletxt.set_text('Toggle state = {0}'.format(self.toggle_key_dict[self.current_state][3]))
 
         elif event.key == 'y':
-            print "Keypress: ", event.key, "  Auto set ylim on all axes"
+            print("Keypress: ", event.key, "  Auto set ylim on all axes")
             #for a in plt.gcf().axes:
             self.reYlim(self.ax)
             self.retick(self.ax)
             #gcf().canvas.draw()
         elif event.key == 'x':
-            print "Keypress: ", event.key, "  Auto set xlim on all axes"
+            print("Keypress: ", event.key, "  Auto set xlim on all axes")
             self.reXlim(self.ax)
             self.retick(self.ax)
             #gcf().canvas.draw()
         elif event.key == 'a':
-            print "Keypress: ", event.key, "  Auto set xlim and ylim on all axes"
+            print("Keypress: ", event.key, "  Auto set xlim and ylim on all axes")
             self.reXlim(self.ax)
             #for a in plt.gcf().axes:
             self.reYlim(self.ax)
@@ -285,7 +285,7 @@ class AxesCallbacks:
             #gcf().canvas.draw()
 
         elif event.key == 'g':
-            print "Keypress: ", event.key, "  toggle grid on all axes"
+            print("Keypress: ", event.key, "  toggle grid on all axes")
             if self.ax.xaxis._gridOnMajor:
                 gridState = True
             else:
@@ -293,7 +293,7 @@ class AxesCallbacks:
             self.ax.grid(not gridState)
 
         elif event.key == '?':
-            print "Keypress: ", event.key, "  list key bindings"
+            print("Keypress: ", event.key, "  list key bindings")
             keybindings = """
             Key presses supported
             -    Zoom out
@@ -304,7 +304,7 @@ class AxesCallbacks:
             g    Toggle grid on all axes
             """
 
-            print keybindings
+            print(keybindings)
 
         plt.draw()
 

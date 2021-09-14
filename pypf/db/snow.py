@@ -33,9 +33,9 @@ def calcSWE(Tts,Pts):
     meltperiod = 10
 
     if Tts.has_missing_steps(freq=1):
-        print "There are missing days in temperature data."
-        print "Handling of these data have not been implemented in calcSWE."
-        print "You could interpolate..."
+        print("There are missing days in temperature data.")
+        print("Handling of these data have not been implemented in calcSWE.")
+        print("You could interpolate...")
         raise
     
     
@@ -76,9 +76,9 @@ def calcSWE(Tts,Pts):
     SWEacc = np.cumsum(Pts.data[:,0])[id2]
     
     if len(id2) == len(Pts.ordinals):
-        print "All precip datapoints have corresponding temperatures"
+        print("All precip datapoints have corresponding temperatures")
     else:
-        print "Some precip points do not have corresponding temperatures"
+        print("Some precip points do not have corresponding temperatures")
     
     # -------------------------------------------------------------------------
     # Select precipitation data:
@@ -410,14 +410,14 @@ def list_intersection(list1, list2):
     # make dictionaty from list1, with elemetns as keys
     #list1_dict = dict(zip(list1,id1))
     for id,e in enumerate(list2): 
-        if not list2_dict.has_key(e):
+        if e not in list2_dict:
             list2_dict[e] = id        
     
     # now perform intersection with list2
     for id,e in enumerate(list1):
         # test if element is in list1, and that it has not already been added to 
         # the intersection dictionary
-        if np.logical_and(list2_dict.has_key(e), not int_dict.has_key(e)):
+        if np.logical_and(e in list2_dict, e not in int_dict):
             # True, add to intersection dictionary...
             int_dict[e] = [id, list2_dict[e]]
             # ...and set index int list2 to True

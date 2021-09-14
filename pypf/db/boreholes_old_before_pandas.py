@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 import os
 import os.path
@@ -347,7 +347,7 @@ def GTload(fname, sep=',', paramsd=None, hlines=None):
     #    datadim = float(paramsd['channels'])
     if 'depth' in paramsd:
         if type(paramsd['depth']) == str:
-            paramsd['depth'] = map(float, paramsd['depth'].split(','))
+            paramsd['depth'] = list(map(float, paramsd['depth'].split(',')))
         datadim = len(paramsd['depth'])
     else:
         raise 'No depth information in header! (' + fname + ')'
@@ -355,7 +355,7 @@ def GTload(fname, sep=',', paramsd=None, hlines=None):
     if 'calibration' in paramsd:
         if type(paramsd['calibration']) == str:
             try:
-                paramsd['calibration'] = map(float, paramsd['calibration'].split(','))
+                paramsd['calibration'] = list(map(float, paramsd['calibration'].split(',')))
             except:
                 raise 'Could not parse calibration information! (' + fname + ')'
         if datadim != len(paramsd['calibration']):
@@ -434,7 +434,7 @@ def GTload(fname, sep=',', paramsd=None, hlines=None):
             if file.ncol >= datacol + datadim and (flagcol is not None):
                 flags = file.data[:, flagcol]
         else:
-            print "Type not implemented yet!"
+            print("Type not implemented yet!")
             raise
 
         if not 'tzinfo' in paramsd:
@@ -447,7 +447,7 @@ def GTload(fname, sep=',', paramsd=None, hlines=None):
             try:
                 times = np.array([dateutil.parser.parse(t, yearfirst=True, dayfirst=True).date() for t in times])
             except:
-                print "!!!! Problems parsing times from input file... starting debugger."
+                print("!!!! Problems parsing times from input file... starting debugger.")
                 pdb.set_trace()
         else:
             # the dataset contains dates and times
@@ -455,13 +455,13 @@ def GTload(fname, sep=',', paramsd=None, hlines=None):
                 times = np.array(
                     [dateutil.parser.parse(t + ' ' + paramsd['tzinfo'], yearfirst=True, dayfirst=True) for t in times])
             except:
-                print "!!!! Problems parsing times from input file... starting debugger."
+                print("!!!! Problems parsing times from input file... starting debugger.")
                 pdb.set_trace()
 
         if 'time_offset' in paramsd:
-            print "*" * 15
-            print "A time off set is applied to the data...!"
-            print "*" * 15
+            print("*" * 15)
+            print("A time off set is applied to the data...!")
+            print("*" * 15)
             times = times + dt.timedelta(seconds=np.float(paramsd.pop('time_offset')) * 60)
 
         return (data, times, flags, paramsd)
@@ -509,7 +509,7 @@ class logger:
         self.__dict__.update(sdict)  # update attributes
 
         if timeseries is not None and type(timeseries) == dict:
-            if not self.__dict__.has_key('timeseries') or self.timeseries is None:
+            if 'timeseries' not in self.__dict__ or self.timeseries is None:
                 # create new instance of timeseries
                 self.timeseries = myts(None, None)
             # update timeseries instance with dictionary data
@@ -589,7 +589,7 @@ class logger:
                 elif f == 'm':
                     mask[id, :] = True
                 elif f[0] == 'm':
-                    colid = map(int, [s.rstrip().lstrip() for s in f[1:].rstrip(' ]').lstrip(' [').split(',')])
+                    colid = list(map(int, [s.rstrip().lstrip() for s in f[1:].rstrip(' ]').lstrip(' [').split(',')]))
                     if colid not in [[], None]:
                         mask[id, colid] = True
 
@@ -607,7 +607,7 @@ class logger:
                     raise "Logger parameters missing from file."
 
                 # handle remaining parameters
-                for k, v in paramsd.items():
+                for k, v in list(paramsd.items()):
                     if k in ['timeseries']:
                         # do not overwrite the timeseries atribute!
                         continue
@@ -615,7 +615,7 @@ class logger:
                     if k in self.__dict__:
                         self.__dict__[k] = v
                     else:
-                        print "Parameter ", k, " not recognized!"
+                        print("Parameter ", k, " not recognized!")
             else:
                 raise "No header data in file, aborting!"
         elif mtype in ['oldest', 'youngest', 'mean']:
@@ -798,9 +798,9 @@ class borehole:
         loggers = sdict.pop('loggers', None)
         self.__dict__.update(sdict)  # update attributes
 
-        if not self.__dict__.has_key('daily_ts'):
+        if 'daily_ts' not in self.__dict__:
             self.daily_ts = None
-        if not self.__dict__.has_key('loggers'):
+        if 'loggers' not in self.__dict__:
             self.loggers = []
 
         if daily_ts is not None and type(daily_ts) == dict:
@@ -818,7 +818,7 @@ class borehole:
                     self.loggers[id].__setstate__(l)
         else:
             # We are updating an existing instance!
-            print "option to update existing loggers not implemented yet!"
+            print("option to update existing loggers not implemented yet!")
             pdb.set_trace()
 
     def pickle(self, fullfile_noext=None):
@@ -849,7 +849,7 @@ class borehole:
     def load_borhole(self, fname):
         items, comments, nl = get_property_info(fname=fname)
 
-        for key, value in items.items():
+        for key, value in list(items.items()):
             if key == 'date':
                 self.__dict__[key] = dateutil.parser.parse(value)
             elif key in ['latitude', 'longitude']:
@@ -879,21 +879,21 @@ class borehole:
         if path is None and self.path is not None:
             path = self.path
         if path is None:
-            print "No path specified for auto processing! Nothing done...!"
+            print("No path specified for auto processing! Nothing done...!")
             return
         # fname is the filename without the .py/.pyc extention
 
         fullfile_noext = os.path.join(path, fname)
         pyfile = fullfile_noext + ".py"
         if os.path.isfile(pyfile):
-            execfile(pyfile, {}, locals())
+            exec(compile(open(pyfile, "rb").read(), pyfile, 'exec'), {}, locals())
         else:
-            print "Specified processing file not found! Nothing done ...!"
+            print("Specified processing file not found! Nothing done ...!")
             return
 
         locals()['auto_process'](self)
 
-        print "Applied processing steps from {0}".format(pyfile)
+        print("Applied processing steps from {0}".format(pyfile))
 
     def __str__(self):
         def print_date(date):
@@ -927,11 +927,11 @@ class borehole:
         success = False
         if ('borehole' not in paramsd):
             # do we have a borehole name?
-            print "No borehole information in file! Cannot import."
+            print("No borehole information in file! Cannot import.")
             return False
         elif (paramsd['borehole'] != self.name):
             # Yes, but does it corespond to this borehole
-            print "Logger info does not match borehole info"
+            print("Logger info does not match borehole info")
             return False
         elif 'sn' in paramsd:
             # Do we have a serial number? Is it already registered?
@@ -945,14 +945,14 @@ class borehole:
 
             if not success:
                 # So the logger is not registered yet...
-                print '--------------------------------------------------------------'
-                print 'Adding logger with SN ' + paramsd['sn'] + ' to borehole ' + self.name
+                print('--------------------------------------------------------------')
+                print('Adding logger with SN ' + paramsd['sn'] + ' to borehole ' + self.name)
                 self.loggers.append(logger())
                 self.loggers[-1].append(fname=fname, paramsd=paramsd, hlines=hlines, mtype='none')
 
             return True
         else:
-            print "No serial number information in file! Cannot import."
+            print("No serial number information in file! Cannot import.")
             return False
 
     def drop_channels(self, logger_sn=None, logger_id=None, channels=None):
@@ -1017,14 +1017,14 @@ class borehole:
             # Estimate the number of data points per day
             self_freq = int(1 / self.loggers[0].timeseries.estimate_frequency())
             if 24 < self_freq < 1:
-                print ""
-                print "Estimated frequency of data series from logger " + self.loggers[0].sn + \
-                      " is outside common\n range (1-24 points per day)."
-                print "Aborting calculation of daily average of borehole " + self.name
-                print ""
+                print("")
+                print("Estimated frequency of data series from logger " + self.loggers[0].sn + \
+                      " is outside common\n range (1-24 points per day).")
+                print("Aborting calculation of daily average of borehole " + self.name)
+                print("")
                 return
             else:
-                print "Estimated data frequency = {0} measurements/day".format(self_freq)
+                print("Estimated data frequency = {0} measurements/day".format(self_freq))
 
             # Get daily average from first logger, and setup depth array
             mindata = self_freq
@@ -1040,11 +1040,11 @@ class borehole:
                 # Estimate the number of data points per day
                 self_freq = int(1 / self.loggers[0].timeseries.estimate_frequency())
                 if 24 < self_freq < 1:
-                    print ""
-                    print "Estimated frequency of data series from logger " + l.sn + \
-                          " is outside common\n range (1-24 points per day)."
-                    print "Aborting calculation of daily average of borehole " + self.name
-                    print ""
+                    print("")
+                    print("Estimated frequency of data series from logger " + l.sn + \
+                          " is outside common\n range (1-24 points per day).")
+                    print("Aborting calculation of daily average of borehole " + self.name)
+                    print("")
                     return
                 self.daily_ts.hstack(l.timeseries.calc_daily_avg(mindata=self_freq))
                 [self.depths.append(d) for d in l.depth]
@@ -1068,7 +1068,7 @@ class borehole:
         entry with meta data, f.ex. the number of data in an averaged point.
         """
 
-        if not self.__dict__.has_key('daily_ts'):
+        if 'daily_ts' not in self.__dict__:
             self.calc_daily_avg()
 
         if len(self.loggers) == 0:
@@ -1100,7 +1100,7 @@ class borehole:
         #- Max, Min and MeanGT for each depth.
         """
 
-        if not self.__dict__.has_key('monthly_ts'):
+        if 'monthly_ts' not in self.__dict__:
             self.calc_monthly_avg()
 
         datetimes = self.monthly_ts.times
@@ -1116,10 +1116,10 @@ class borehole:
         table[0::, 0] = self.depths
 
         # prt_fmt = np.ones((1,13)).*
-        print " "
-        print "--------------------------------------------------------------------"
-        print "Borehole %s" % (self.name,)
-        print "--------------------------------------------------------------------"
+        print(" ")
+        print("--------------------------------------------------------------------")
+        print("Borehole %s" % (self.name,))
+        print("--------------------------------------------------------------------")
         for y in np.unique(years[:, 0]):
             table_mask.fill(True)
             table_mask[0::, 0] = False
@@ -1131,9 +1131,9 @@ class borehole:
 
             table.mask = table_mask
 
-            print " "
-            print "Year:  %i" % (y)
-            print "Depth\t" + "\t".join(months_str)
+            print(" ")
+            print("Year:  %i" % (y))
+            print("Depth\t" + "\t".join(months_str))
             for k in np.arange(table.shape[0]):
                 # print "\t".join(["%.2f" % (t,) for t in table[k, :]])
                 if table.mask[k, 0] == True:
@@ -1145,7 +1145,7 @@ class borehole:
                         outstr = "\t".join([outstr, '---'])
                     else:
                         outstr = "\t".join([outstr, "{0: .2f}".format(t)])
-                print outstr
+                print(outstr)
 
     def calc_thaw_depth(self, date, fullts=False):
         """
@@ -1166,7 +1166,7 @@ class borehole:
 
             return x_1 - y_1 / ((y_2 - y_1) / (x_2 - x_1))
 
-        raw_input('Beware! This method has problems with ground freezing from top! [press enter to proceed]')
+        input('Beware! This method has problems with ground freezing from top! [press enter to proceed]')
 
         if not fullts:
 
@@ -1521,20 +1521,20 @@ class borehole:
                     # interpolate to find 0 degr.
 
                     if maxd[yid] == len(depths) - 1:
-                        print str(Yr[yid]) + ": Max depth beyond grid"
+                        print(str(Yr[yid]) + ": Max depth beyond grid")
                         maxd[yid] = depths[-1]
                     elif maxd[yid] < len(find(depths < 0)):
-                        print str(Yr[yid]) + ": Max depth above second grid point"
+                        print(str(Yr[yid]) + ": Max depth above second grid point")
                         maxd[yid] = -9999.
                     else:
                         # calculate thaw depths for the date with max temperature at deepest thawed node
                         thawd, rel_d = self.calc_thaw_depth_at_node(ts.times[maxdayIDp[yid]], maxd[yid])
-                        print "IDp: {0:4d} ({1:10s})    ".format(maxdayIDp[yid], ts.times[maxdayIDp[yid]].__str__()),
+                        print("IDp: {0:4d} ({1:10s})    ".format(maxdayIDp[yid], ts.times[maxdayIDp[yid]].__str__()), end=' ')
                         thaw_depth_p[yid, :] = np.ma.atleast_2d(thawd)
 
                         # calculate thaw depths for the date with max temperature at shallowest frozen node
                         thawd, rel_d = self.calc_thaw_depth_at_node(ts.times[maxdayIDn[yid]], maxd[yid])
-                        print "IDn: {0:4d} ({1:10s})    ".format(maxdayIDn[yid], ts.times[maxdayIDn[yid]].__str__())
+                        print("IDn: {0:4d} ({1:10s})    ".format(maxdayIDn[yid], ts.times[maxdayIDn[yid]].__str__()))
                         thaw_depth_n[yid, :] = np.ma.atleast_2d(thawd)
 
                         ALT_date[yid, 0] = ts.times[maxdayIDp[yid]]
@@ -1566,47 +1566,47 @@ class borehole:
             maxdepth = np.where(tdp > tdn, tdp, tdn)
 
             if not silent:
-                print " "
-                print " "
-                print "++ = 2 nodes above frost table"
-                print "+- = 1 node above frost table and one node below"
-                print "-- = 2 nodes below frost table"
-                print " "
-                print "Estimations based on date of highest temperature at deepest thawed node:"
-                print "Year    Depth(++)    Depth(+-)    Depth(--)    Date             maxd"
+                print(" ")
+                print(" ")
+                print("++ = 2 nodes above frost table")
+                print("+- = 1 node above frost table and one node below")
+                print("-- = 2 nodes below frost table")
+                print(" ")
+                print("Estimations based on date of highest temperature at deepest thawed node:")
+                print("Year    Depth(++)    Depth(+-)    Depth(--)    Date             maxd")
                 str_fmt = "{0:4d}    {1:6s}       {2:6s}       {3:6s}       {4:10s}    {5:4d}"
                 for yid in np.arange(len(Yr)):
-                    print str_fmt.format(Yr[yid],
+                    print(str_fmt.format(Yr[yid],
                                          np.round(thaw_depth_p[yid, 0], 2).__str__(),
                                          np.round(thaw_depth_p[yid, 2], 2).__str__(),
                                          np.round(thaw_depth_p[yid, 1], 2).__str__(),
                                          ALT_date[yid, 0].__str__(),
-                                         maxd[yid])
-                print " "
-                print "Estimations based on date of highest temperature at node below deepest thawed node:"
-                print "Year    Depth(++)    Depth(+-)    Depth(--)    Date        maxd"
+                                         maxd[yid]))
+                print(" ")
+                print("Estimations based on date of highest temperature at node below deepest thawed node:")
+                print("Year    Depth(++)    Depth(+-)    Depth(--)    Date        maxd")
                 for yid in np.arange(len(Yr)):
-                    print str_fmt.format(Yr[yid],
+                    print(str_fmt.format(Yr[yid],
                                          np.round(thaw_depth_n[yid, 0], 2).__str__(),
                                          np.round(thaw_depth_n[yid, 2], 2).__str__(),
                                          np.round(thaw_depth_n[yid, 1], 2).__str__(),
                                          ALT_date[yid, 1].__str__(),
-                                         maxd[yid])
+                                         maxd[yid]))
 
-                print " "
-                print "Summary:"
-                print "Depth: average and std of ++ and +- thaw depths"
-                print "ALT: the maximum of the averages for the two dates considered"
-                print "Year    ALT      Depth(p) std   Date          Depth(n) std   Date      "
+                print(" ")
+                print("Summary:")
+                print("Depth: average and std of ++ and +- thaw depths")
+                print("ALT: the maximum of the averages for the two dates considered")
+                print("Year    ALT      Depth(p) std   Date          Depth(n) std   Date      ")
                 for yid in np.arange(len(Yr)):
-                    print "%4i  %6.2f    %6.2f    %4.2f  %10s   %6.2f    %4.2f  %10s" % (Yr[yid], maxdepth[yid],
+                    print("%4i  %6.2f    %6.2f    %4.2f  %10s   %6.2f    %4.2f  %10s" % (Yr[yid], maxdepth[yid],
                                                                                          tdp[yid], tdp_std[yid],
                                                                                          ALT_date[yid, 0],
                                                                                          tdn[yid], tdn_std[yid],
-                                                                                         ALT_date[yid, 1])
-                print " "
-                print " "
-                print " "
+                                                                                         ALT_date[yid, 1]))
+                print(" ")
+                print(" ")
+                print(" ")
             return (Yr, maxdepth, thaw_depth_p, thaw_depth_n, ALT_date)
 
             # id           index corresponding to a certain year
@@ -1631,7 +1631,7 @@ class borehole:
         maxddayID:   Index into dateinput that gives maximum thawdepth
         """
 
-        raw_input('Beware: Method not completed and tested! [Press enter to continue]')
+        input('Beware: Method not completed and tested! [Press enter to continue]')
 
         if not fullts:
             if self.daily_ts is None:
@@ -1651,7 +1651,7 @@ class borehole:
             # year_thaw = np.zeros((len(ydict),3))
 
             # Loop through time series for individual years
-            for y, yts in ydict.items():
+            for y, yts in list(ydict.items()):
                 maxthaw = []  # Holds the 
                 for did in np.arange(len(yts.times)):
                     try:
@@ -1666,9 +1666,9 @@ class borehole:
                     ALT_date.append(np.ma.masked)
 
             if not silent:
-                print "Year    Depth(p) std  Date          Depth(n) std  Date      "
+                print("Year    Depth(p) std  Date          Depth(n) std  Date      ")
                 for did in np.arange(len(Yr)):
-                    print "%4i    %6.2f  %10s" % (Yr[did], maxd[did], ALT_date[did])
+                    print("%4i    %6.2f  %10s" % (Yr[did], maxd[did], ALT_date[did]))
 
             return (Yr, maxd, ALT_date)
 
@@ -1737,7 +1737,7 @@ class borehole:
             # lim = [start, end]
 
             if (self.daily_ts.times[-1] < end) or (self.daily_ts.times[0] > lim[0]):
-                print "get_MAGT: timeseries not long enough for requested time interval!"
+                print("get_MAGT: timeseries not long enough for requested time interval!")
                 pdb.set_trace()
 
             return self.get_MeanGT(lim)
@@ -1751,7 +1751,7 @@ class borehole:
                 self.calc_daily_avg()
 
             if ignore_mask:
-                print "Warning: ignore_mask option not implemented for averaged data!"
+                print("Warning: ignore_mask option not implemented for averaged data!")
 
             meanGT = self.daily_ts.mean(lim)
 
@@ -1788,7 +1788,7 @@ class borehole:
                 self.calc_daily_avg()
 
             if ignore_mask:
-                print "Warning: ignore_mask option not implemented for averaged data!"
+                print("Warning: ignore_mask option not implemented for averaged data!")
 
             # Get max of timeseries
             tsmax = self.daily_ts.max(lim)
@@ -1818,7 +1818,7 @@ class borehole:
                 self.calc_daily_avg()
 
             if ignore_mask:
-                print "Warning: ignore_mask option not implemented for averaged data!"
+                print("Warning: ignore_mask option not implemented for averaged data!")
 
             # Get max of timeseries
             tsmin = self.daily_ts.min(lim)
@@ -1938,30 +1938,30 @@ class borehole:
         if args is None:
             args = dict()
 
-        if not args.has_key('plotMeanGT'):
+        if 'plotMeanGT' not in args:
             args['plotMeanGT'] = plotMeanGT
-        if kwargs.has_key('title'):
+        if 'title' in kwargs:
             args['title'] = kwargs.pop('title')
-        if not args.has_key('title'):
+        if 'title' not in args:
             args['title'] = defaultargs['title']
-        if not args.has_key('maxGT'):
+        if 'maxGT' not in args:
             args['maxGT'] = defaultargs['maxGT']
-        if not args.has_key('minGT'):
+        if 'minGT' not in args:
             args['minGT'] = defaultargs['minGT']
-        if not args.has_key('MeanGT'):
+        if 'MeanGT' not in args:
             args['MeanGT'] = defaultargs['MeanGT']
-        if not args.has_key('fill'):
+        if 'fill' not in args:
             args['fill'] = defaultargs['fill']
-        if not args.has_key('vline'):
+        if 'vline' not in args:
             args['vline'] = defaultargs['vline']
-        if not args.has_key('grid'):
+        if 'grid' not in args:
             args['grid'] = defaultargs['grid']
 
         if lim is None and nyears is not None:
             if end is None:
                 end = self.daily_ts.times[-1]
                 if fullts:
-                    print "plot end date is based on daily_ts not fullts"
+                    print("plot end date is based on daily_ts not fullts")
             lim = nyears2lim(end, nyears)
 
         # prepare to filter on depths
@@ -1985,11 +1985,11 @@ class borehole:
         maxGT = maxGT[maxGT['depth'] >= 0]
         minGT = minGT[minGT['depth'] >= 0]
 
-        if kwargs.has_key('axes'):
+        if 'axes' in kwargs:
             ax = kwargs.pop('axes')
-        elif kwargs.has_key('Axes'):
+        elif 'Axes' in kwargs:
             ax = kwargs.pop('Axes')
-        elif kwargs.has_key('ax'):
+        elif 'ax' in kwargs:
             ax = kwargs.pop('ax')
         else:
             fh = pylab.figure()
@@ -2003,7 +2003,7 @@ class borehole:
         ax.hold(True)
         ax.plot(minGT['value'][did], minGT['depth'][did], **args['minGT'])  # ,'-k',marker='.', markersize=7,**kwargs)
 
-        if args.has_key('fill') and args['fill'] is not None:
+        if 'fill' in args and args['fill'] is not None:
             # fclr = kwargs.pop('fill')
             # if type(fclr) != str and fclr != False:
             #    fclr = '0.7'
@@ -2016,10 +2016,10 @@ class borehole:
         # pylab.setp(ax, ylim=ylim[::-1])
         # ax.grid(True)
 
-        if args.has_key('vline') and args['vline'] is not None:
+        if 'vline' in args and args['vline'] is not None:
             ax.axvline(x=0, **args['vline'])  # linestyle='--', color='k')
 
-        if args.has_key('plotMeanGT') and args['plotMeanGT']:
+        if 'plotMeanGT' in args and args['plotMeanGT']:
             # get maximum values within time limits
             MeanGT = self.get_MeanGT(lim=lim, fullts=fullts, ignore_mask=ignore_mask)
 
@@ -2035,7 +2035,7 @@ class borehole:
 
             ax.plot(MeanGT['value'][did], MeanGT['depth'][did], **args['MeanGT'])  # '-k',marker='.', markersize=7)
 
-        if args.has_key('grid') and args['grid'] is not None:
+        if 'grid' in args and args['grid'] is not None:
             ax.grid(True, **args['grid'])
 
         ax.get_xaxis().tick_top()
@@ -2056,11 +2056,11 @@ class borehole:
         return ax
 
     def plot_date(self, date, annotations=True, fs=12, **kwargs):
-        if kwargs.has_key('axes'):
+        if 'axes' in kwargs:
             ax = kwargs.pop('axes')
-        elif kwargs.has_key('Axes'):
+        elif 'Axes' in kwargs:
             ax = kwargs.pop('Axes')
-        elif kwargs.has_key('ax'):
+        elif 'ax' in kwargs:
             ax = kwargs.pop('ax')
         else:
             fh = pylab.figure()
@@ -2071,8 +2071,8 @@ class borehole:
         id = find(self.daily_ts.times == date)
 
         if len(id) == 0:
-            print "Date " + date.__str__() + "does not exist in data set"
-            print "(This function accepts only a datetime.date object)"
+            print("Date " + date.__str__() + "does not exist in data set")
+            print("(This function accepts only a datetime.date object)")
             return False
 
         gid = find(np.array(self.depths) >= 0.)
@@ -2115,11 +2115,11 @@ class borehole:
 
     def plot(self, depths=None, plotmasked=False, fullts=False, legend=True,
              annotations=True, lim=None, **kwargs):
-        if kwargs.has_key('axes'):
+        if 'axes' in kwargs:
             ax = kwargs.pop('axes')
-        elif kwargs.has_key('Axes'):
+        elif 'Axes' in kwargs:
             ax = kwargs.pop('Axes')
-        elif kwargs.has_key('ax'):
+        elif 'ax' in kwargs:
             ax = kwargs.pop('ax')
         else:
             fh = pylab.figure()
@@ -2228,11 +2228,11 @@ class borehole:
         left, width = 0.1, 0.8
         rect1 = [left, 0.2, width, 0.6]  # left, bottom, width, height
 
-        if kwargs.has_key('axes'):
+        if 'axes' in kwargs:
             ax = kwargs.pop('axes')
-        elif kwargs.has_key('Axes'):
+        elif 'Axes' in kwargs:
             ax = kwargs.pop('Axes')
-        elif kwargs.has_key('ax'):
+        elif 'ax' in kwargs:
             ax = kwargs.pop('ax')
         else:
             fh = pylab.figure(figsize=figsize, facecolor=figBG)
@@ -2453,11 +2453,11 @@ def plot_surf(bh, depths=None, ignore_mask=False, fullts=False, legend=True,
 
     fh = None
 
-    if kwargs.has_key('axes'):
+    if 'axes' in kwargs:
         ax = kwargs.pop('axes')
-    elif kwargs.has_key('Axes'):
+    elif 'Axes' in kwargs:
         ax = kwargs.pop('Axes')
-    elif kwargs.has_key('ax'):
+    elif 'ax' in kwargs:
         ax = kwargs.pop('ax')
     else:
         fh = pylab.figure(figsize=figsize, facecolor=figBG)
@@ -2631,7 +2631,7 @@ def read_boreholes(path=basepath, walk=True, bholes=None, calc_daily=True, \
                     with open(os.path.join(dr, f), 'rb') as pklfh:
                         tmphole = pickle.load(pklfh)
                 except:
-                    print "Could not read file: {0}".format(os.path.join(dr, f))
+                    print("Could not read file: {0}".format(os.path.join(dr, f)))
                     tmphole = None
 
                 if isinstance(tmphole, borehole):
@@ -2646,10 +2646,10 @@ def read_boreholes(path=basepath, walk=True, bholes=None, calc_daily=True, \
                             (bholes['contains'] is not None and bholes['contains'] in tmphole.name):
                         bholes[tmphole.name] = tmphole
                         bholes['pkl_names'].append(tmphole.name)
-                        print '\n**************************************************************\n'
-                        print 'Borehole ' + tmphole.name + ' created from pickled file: ' + dr
+                        print('\n**************************************************************\n')
+                        print('Borehole ' + tmphole.name + ' created from pickled file: ' + dr)
                     else:
-                        print 'Borehole ' + tmphole.name + ' found but not added.'
+                        print('Borehole ' + tmphole.name + ' found but not added.')
 
                     #        print "looking for bor files..."
         for id, f in enumerate(flst):
@@ -2663,8 +2663,8 @@ def read_boreholes(path=basepath, walk=True, bholes=None, calc_daily=True, \
                                 (bholes['contains'] is not None and bholes['contains'] in tmphole.name) and \
                                 not tmphole.name in bholes:
                     bholes[tmphole.name] = tmphole
-                    print '\n**************************************************************\n'
-                    print 'Borehole ' + tmphole.name + ' created from: ' + dr
+                    print('\n**************************************************************\n')
+                    print('Borehole ' + tmphole.name + ' created from: ' + dr)
 
             # ...or is it a directory with certain names
             elif os.path.isdir(os.path.join(dr, f)) and \
@@ -2709,16 +2709,16 @@ def read_boreholes(path=basepath, walk=True, bholes=None, calc_daily=True, \
                                 (bholes['contains'] is not None and bholes['contains'] in paramsd['borehole'])) and \
                                     paramsd['borehole'] not in bholes['pkl_names']:
 
-                        if paramsd['borehole'] in bholes.keys():
+                        if paramsd['borehole'] in list(bholes.keys()):
                             stat = bholes[paramsd['borehole']].add_data(fullf, paramsd=paramsd, hlines=hlines)
                             if stat:
-                                print f + " added to borehole " + paramsd['borehole']
+                                print(f + " added to borehole " + paramsd['borehole'])
                             else:
-                                print "NB!" + f + " could not be added to borehole " + paramsd['borehole']
+                                print("NB!" + f + " could not be added to borehole " + paramsd['borehole'])
                                 pdb.set_trace()
                         else:
-                            print "NB!" + f + " tries to reference non-exsisting " + \
-                                  "borehole " + paramsd['borehole']
+                            print("NB!" + f + " tries to reference non-exsisting " + \
+                                  "borehole " + paramsd['borehole'])
 
     # ..........................................................................
 
@@ -2729,7 +2729,7 @@ def read_boreholes(path=basepath, walk=True, bholes=None, calc_daily=True, \
     if type(bholes) != dict:
         bholes = dict()
 
-    existing_holes = bholes.keys()
+    existing_holes = list(bholes.keys())
     bholes['names'] = names
     bholes['read_pkl'] = read_pkl
     bholes['pkl_names'] = []
@@ -2757,7 +2757,7 @@ def read_boreholes(path=basepath, walk=True, bholes=None, calc_daily=True, \
     del bholes['starts_with']
     del bholes['read_all']
 
-    print '\n**************************************************************\n'
+    print('\n**************************************************************\n')
 
     if auto_process:
         changes = False
@@ -2766,12 +2766,12 @@ def read_boreholes(path=basepath, walk=True, bholes=None, calc_daily=True, \
                 bholes[bh].auto_process()
                 changes = True
         if changes:
-            print '\n**************************************************************\n'
+            print('\n**************************************************************\n')
 
     if calc_daily:
         for bh in bholes:
             if bh not in pkl_names and bh not in existing_holes:
-                print 'Calculating daily timeseries for borehole ' + bh
+                print('Calculating daily timeseries for borehole ' + bh)
                 bholes[bh].calc_daily_avg()
 
     return bholes
@@ -2920,7 +2920,7 @@ def new_borehole(name=None, path=None, loggers=1):
                 "#  - columns match the column headers",
                 "#  - flag column specification"]
         else:
-            print "Unknown logger type: " + ltype
+            print("Unknown logger type: " + ltype)
             return False
 
         fullfile = os.path.join(path, 'logger_{0:d}.txt'.format(id))
@@ -2969,9 +2969,9 @@ def new_borehole(name=None, path=None, loggers=1):
 
 
 def pickle_all(bholes):
-    for name, bh in bholes.items():
+    for name, bh in list(bholes.items()):
         bh.pickle()
-        print "Pickled borehole {0}".format(name)
+        print("Pickled borehole {0}".format(name))
 
 
 def combine_boreholes(bh1, bh2, drop_channels=None, calc_daily=True):
@@ -2993,7 +2993,7 @@ def combine_boreholes(bh1, bh2, drop_channels=None, calc_daily=True):
         bh3.loggers.append(copy.deepcopy(l))
 
     if drop_channels is not None and type(drop_channels) == dict:
-        for sn, chns in drop_channels.items():
+        for sn, chns in list(drop_channels.items()):
             bh3.drop_channels(logger_sn=sn, channels=chns)
 
     if calc_daily:
@@ -3014,7 +3014,7 @@ def filter_dict(adict, predicate=lambda k, v: True):
     """
 
     def _filter(adict, predicate=lambda k, v: True):
-        for k, v in adict.items():
+        for k, v in list(adict.items()):
             if predicate(k, v):
                 yield k, adict[k]
 
@@ -3085,7 +3085,7 @@ def plot_grl_boreholes(resolution='i', corners=None, bholes=None, plotMeanGT=Fal
 
     mapping.plot.PlotIcecap(basemap=myEDC.map, ax=myEDC.ax)
 
-    print 'Drawing cities...'
+    print('Drawing cities...')
     myEDC.GreenlandCities = {
         'Ilulissat': np.array((-51.100000, 69.216667)),
         'Sisimiut': np.array((-53.669284, 66.933628)),
@@ -3094,9 +3094,9 @@ def plot_grl_boreholes(resolution='i', corners=None, bholes=None, plotMeanGT=Fal
 
     myEDC.boreholes = bholes
 
-    myEDC.plotPoints(np.array(myEDC.GreenlandCities.values())[:, 0],
-                     np.array(myEDC.GreenlandCities.values())[:, 1], 'or', ms=8,
-                     picker=8, names=myEDC.GreenlandCities.keys(), tag='cities')
+    myEDC.plotPoints(np.array(list(myEDC.GreenlandCities.values()))[:, 0],
+                     np.array(list(myEDC.GreenlandCities.values()))[:, 1], 'or', ms=8,
+                     picker=8, names=list(myEDC.GreenlandCities.keys()), tag='cities')
 
     x, y = myEDC.map(myEDC.GreenlandCities['Ilulissat'][0], myEDC.GreenlandCities['Ilulissat'][1])
     map_ax.text(x, y, 'Ilulissat .', fontsize=14, fontweight='bold',
@@ -3111,17 +3111,17 @@ def plot_grl_boreholes(resolution='i', corners=None, bholes=None, plotMeanGT=Fal
     map_ax.text(x, y, 'Nuuk .', fontsize=14, fontweight='bold',
                 horizontalalignment='right', verticalalignment='top', zorder=100)
 
-    print 'Plotting trumpets...'
+    print('Plotting trumpets...')
     bholes['KAN2005-01'].uncalibrate()  # Calibration for this borehole is not correct,
     # and data should be presented uncalibrated.
 
-    print "Finished uncalibrating"
+    print("Finished uncalibrating")
 
     args = {'title': None}
     # bholes['ILU2007-03'].plot_trumpet(lim=['2007-12-01','2009-12-01'],ax1)
     bholes['ILU2007-01'].plot_trumpet(lim=['2007-01-01', '2009-12-31'],
                                       ax=ax1, plotMeanGT=plotMeanGT, args=args)
-    print "plotted first trumpet"
+    print("plotted first trumpet")
     bholes['SIS2007-06_combi'].plot_trumpet(lim=['2008-01-01', '2009-12-31'],
                                             ax=ax2, plotMeanGT=plotMeanGT, args=args)
     bholes['KAN2005-01'].plot_trumpet(lim=['2007-01-01', '2009-12-31'],
@@ -3370,11 +3370,11 @@ def plot_Kenji(bholes=None, plotMeanGT=False):
 
 def plot_data_coverage(bholes, **kwargs):
     #   pdb.set_trace()
-    if kwargs.has_key('axes'):
+    if 'axes' in kwargs:
         ax = kwargs.pop('axes')
-    elif kwargs.has_key('Axes'):
+    elif 'Axes' in kwargs:
         ax = kwargs.pop('Axes')
-    elif kwargs.has_key('ax'):
+    elif 'ax' in kwargs:
         ax = kwargs.pop('ax')
     else:
         fh = pylab.figure()
@@ -3453,18 +3453,18 @@ def print_GT_data(bh, end=None, nyears=1):
     mn = bh.get_MinGT(lim=lim)
     magt = bh.get_MAGT(end=end, nyears=nyears)
 
-    print " "
-    print "Borehole: " + bh.name
-    print " "
-    print "Data availability: ", bh.daily_ts.times[0], "to", bh.daily_ts.times[-1]
-    print " "
-    print "Data for trumpet curves"
-    print "Date range: ", lim[0], "to", lim[1]
-    print " "
-    print "Depth,      Max,      Min,     MAGT"
+    print(" ")
+    print("Borehole: " + bh.name)
+    print(" ")
+    print("Data availability: ", bh.daily_ts.times[0], "to", bh.daily_ts.times[-1])
+    print(" ")
+    print("Data for trumpet curves")
+    print("Date range: ", lim[0], "to", lim[1])
+    print(" ")
+    print("Depth,      Max,      Min,     MAGT")
     for id, d in enumerate(mx['depth']):
         if d >= 0:
-            print "%5.2f,  %7.2f,  %7.2f,  %7.2f" % (d, mx['value'][id], mn['value'][id], magt['value'][id])
+            print("%5.2f,  %7.2f,  %7.2f,  %7.2f" % (d, mx['value'][id], mn['value'][id], magt['value'][id]))
 
     bh.plot_trumpet(lim=lim, plotMeanGT=True)
 
@@ -3490,7 +3490,7 @@ def get_MAGTs(bholes, month=1, day=1, fullts=False):
 
     if not fullts:
         magt_dict = {}
-        for bname, bhole in bholes.items():
+        for bname, bhole in list(bholes.items()):
             if bhole.daily_ts is None:
                 bhole.calc_daily_avg()
 
@@ -3547,7 +3547,7 @@ def plot_MAGTs(bholes, depth=None, ndays=340):
     fig = plt.figure()
     ax = plt.axes()
 
-    for bname, data in magts.items():
+    for bname, data in list(magts.items()):
         if depth is not None:
             id1 = find_nearest(data['Depths'], depth)
         else:
@@ -3572,10 +3572,10 @@ def calc_MAGT_trend(bholes, depth=None, min_ndat=350):
     magts = get_MAGTs(bholes, month=8, day=31)
 
     if len(magts) > 1:
-        print "NB! MAGT timeseries will be concatenated and sorted chronologically!"
+        print("NB! MAGT timeseries will be concatenated and sorted chronologically!")
 
     if not hasattr(min_ndat, 'keys'):
-        min_ndat = {k: min_ndat for k in magts.keys()}
+        min_ndat = {k: min_ndat for k in list(magts.keys())}
 
     fig = plt.figure()
     ax = plt.axes()
@@ -3583,7 +3583,7 @@ def calc_MAGT_trend(bholes, depth=None, min_ndat=350):
     x = []
     y = []
 
-    for bname, data in magts.items():
+    for bname, data in list(magts.items()):
         if depth is not None:
             id = find_nearest(data['Depths'], depth)
         else:
@@ -3704,7 +3704,7 @@ class DatePlotInteractive:
 
         self.plot()
         self.connect()
-        print "Plot connected!"
+        print("Plot connected!")
 
     def connect(self):
         'connect to all the events we need'
@@ -3846,7 +3846,7 @@ class DatePlotInteractive:
             shift+y:         Jump back 1 year (or as close as possible)
             h:               List of commands
             """
-            print keybindings
+            print(keybindings)
             return
         else:
             return
@@ -3912,7 +3912,7 @@ def ensure_datetime_object(dat, date_type=False):
 
 
 def onpick(event):
-    print event.artist.get_label() + " was clicked!"
+    print(event.artist.get_label() + " was clicked!")
 
     if isinstance(event.artist, plt.Line2D):
         thisline = event.artist
@@ -3921,19 +3921,19 @@ def onpick(event):
         ydata = thisline.get_ydata()
         ind = event.ind
 
-        print "%i datapoints within tolerance" % len(ind)
+        print("%i datapoints within tolerance" % len(ind))
         if len(ind) != 0:
-            print 'Coordinates: ', zip(xdata[ind], ydata[ind])
+            print('Coordinates: ', list(zip(xdata[ind], ydata[ind])))
 
-        print "\n"
+        print("\n")
 
     elif isinstance(event.artist, plt.Rectangle):
         patch = event.artist
         vertsxy = patch.get_verts()
-        print 'onpick patch:', vertsxy
+        print('onpick patch:', vertsxy)
     elif isinstance(event.artist, plt.Text):
         text = event.artist
-        print 'onpick text:', text.get_text()
+        print('onpick text:', text.get_text())
 
 
 class Usage(Exception):
@@ -3956,9 +3956,9 @@ def main(argv=None):
     #        return 2
     myEDC = plot_grl_boreholes()
     bholes = myEDC.boreholes
-    print "\nCalculating ALT for B2007-06_combi"
+    print("\nCalculating ALT for B2007-06_combi")
     bholes['SIS2007-06_combi'].calc_ALT()
-    print "Finished!"
+    print("Finished!")
 
 
 if __name__ == "__main__":

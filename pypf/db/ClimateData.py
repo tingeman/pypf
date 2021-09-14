@@ -17,7 +17,7 @@ import calendar
 # import pylab
 
 try:
-    import cPickle as pickle
+    import pickle as pickle
 except:
     import pickle
 try:
@@ -118,11 +118,11 @@ class climate_data(object):
         if self.raw:
             freq = int(1/self.raw[dtype].estimate_frequency())
             if freq < 1 or freq > 48:
-                print ""
-                print "Estimated frequency of data series " + dtype + \
-                    " is outside common\n range (1-48 points per day)."
-                print "Aborting calculation of daily average. "
-                print ""
+                print("")
+                print("Estimated frequency of data series " + dtype + \
+                    " is outside common\n range (1-48 points per day).")
+                print("Aborting calculation of daily average. ")
+                print("")
                 return
 
             # Get daily average
@@ -156,7 +156,7 @@ class climate_data(object):
     
     
     def calcNormalYear(self, datatype='AT',
-                       startdate=dt.date(1961,01,01),
+                       startdate=dt.date(1961,0o1,0o1),
                        enddate=dt.date(1990,12,31)):
         """
         Calculates a daily average over the climate normal period 
@@ -191,7 +191,7 @@ class climate_data(object):
          
         days = [(d.month,d.day) for d in t]
         
-        NYd = dict(zip(days,np.zeros((len(days),2))))
+        NYd = dict(list(zip(days,np.zeros((len(days),2)))))
         
         #NYs = dict(time=days, dat=np.zeros(len(days)), ndays=np.array([],dtype=int))
         ydat = self.get_year_list()
@@ -201,43 +201,43 @@ class climate_data(object):
                 NYd[(r.month,r.day)][0] += yts.data[id,0]
                 NYd[(r.month,r.day)][1] += 1
         
-        NYdk=np.array(NYd.keys(),dtype=[('m',int),('d',int)])
-        NYdv=np.array(NYd.values())
+        NYdk=np.array(list(NYd.keys()),dtype=[('m',int),('d',int)])
+        NYdv=np.array(list(NYd.values()))
         id = np.argsort(NYdk,order=('m','d'))
         
         NYs = dict(time=NYdk[id], dat=NYdv[id,0]/NYdv[id,1], ndays=NYdv[id,1])
         
-        for k in NYd.keys():
+        for k in list(NYd.keys()):
             NYd[k] = NYd[k][0]/NYd[k][1]
         
         return NYd,NYs
 
 
     def scaleAT(self, a, b, recalc = True, recalc_SWE=True):
-        print "Scaling by (dat/a)+b, where a={0} and b={1}".format(a,b)
+        print("Scaling by (dat/a)+b, where a={0} and b={1}".format(a,b))
         try:
-            self.scaled.keys()
+            list(self.scaled.keys())
         except:
             self.scaled = {}
         self.scaled['AT'] = copy.deepcopy(self.raw['AT'])/a + b
-        print "Calculating CLIM Monthly Avg and MAAT"
+        print("Calculating CLIM Monthly Avg and MAAT")
 
         if recalc:
-            print "Calculating CLIM monthlyT and MAAT"        
+            print("Calculating CLIM monthlyT and MAAT")        
             self.scaled['monthlyT'] = self.scaled['AT'].calc_monthly_avg()
             self.scaled['MAAT'] = self.scaled['AT'].calc_annual_avg()
 
         if recalc_SWE:
-            print "Calculating CLIM SWE"
-            if self.scaled.has_key('P'):
+            print("Calculating CLIM SWE")
+            if 'P' in self.scaled:
                 self.scaled['SWE'] = snow.calcSWE(self.scaled['AT'],self.scaled['P'])
             else:                        
                 self.scaled['SWE'] = snow.calcSWE(self.scaled['AT'],self.raw['P'])
                 
     def scaleP(self, a, b, recalc = True):
-        print "Scaling by (dat/a)+b, where a={0} and b={1}".format(a,b)
+        print("Scaling by (dat/a)+b, where a={0} and b={1}".format(a,b))
         try:
-            self.scaled.keys()
+            list(self.scaled.keys())
         except:
             self.scaled = {}
         self.scaled['P'] = copy.deepcopy(self.raw['P'])
@@ -248,7 +248,7 @@ class climate_data(object):
                 0, self.scaled['P'].data)
 
         if recalc:
-            print "Calculating CLIM SWE"
+            print("Calculating CLIM SWE")
             self.scaled['SWE'] = snow.calcSWE(self.scaled['AT'],self.scaled['P'])
 
 
@@ -271,13 +271,13 @@ class climate_data(object):
         
         # If process the lisr of keys
         for k in datasets[0]:
-            if self.__dict__.has_key(k):
+            if k in self.__dict__:
                 stats[k] = {}
                 for t in self.__dict__[k]:             
                     if self.__dict__[k][t] != None:
                         if t in ['SWE']:
                             #stats[t],stats[t+'tot'] = dictStatCum(self.__dict__[k][t].limit(lim),month=8,day=1)
-                            print "SWE calc stats not implemented yet"
+                            print("SWE calc stats not implemented yet")
                             pass
                         else:
                             stats[k][t] = {} 
@@ -297,9 +297,9 @@ class climate_data(object):
         
         def subprint(stats,level, dkeys, datasets, notkeys):
             statlist = []
-            for k in stats.keys():
+            for k in list(stats.keys()):
                 if type(stats[k]) == dict and (datasets == None or k in datasets[0]):
-                    if stats[k].has_key(dkeys[0]):
+                    if dkeys[0] in stats[k]:
                         statlist.append(" "*level + "%10s"% string.rjust(str(k),10-level))
                         for kk in dkeys:
                             try:
@@ -319,7 +319,7 @@ class climate_data(object):
         
             
         if dkeys == None:
-            if stats.has_key('keys'):
+            if 'keys' in stats:
                 dkeys = stats['keys']
             else:
                 dkeys = ['sum','mean','STD','max','min','ndays']
@@ -329,8 +329,8 @@ class climate_data(object):
                     
         statlist = subprint(stats,0, dkeys, datasets, notkeys)
         
-        if stats.has_key('Series') and stats['Series'] != None:
-            print "Series: " + stats['Series']
+        if 'Series' in stats and stats['Series'] != None:
+            print("Series: " + stats['Series'])
         
         
         header = "%10s" % (string.rjust('Dataset',10))
@@ -338,16 +338,16 @@ class climate_data(object):
             header += "   %10s" % (string.rjust(k,10))
         sep = "-"*(len(header)+4)
         
-        print sep
-        print header
-        print sep
+        print(sep)
+        print(header)
+        print(sep)
         
          
         for s in statlist:
-            print s
+            print(s)
         
-        print sep
-        print "\n"
+        print(sep)
+        print("\n")
 
 
 def fit(self, other, parameter, lim=None, col=0, nout=10):
@@ -371,7 +371,7 @@ def fit(self, other, parameter, lim=None, col=0, nout=10):
         
         global my_fit_nit
         if np.mod(my_fit_nit,nout) == 0: 
-            print "Function evaluation {0}: Parameters a={1}, b={2}".format(my_fit_nit,params[0],params[1])
+            print("Function evaluation {0}: Parameters a={1}, b={2}".format(my_fit_nit,params[0],params[1]))
         
         if parameter == 'AT':
             ts1_scaled = copy.deepcopy(ts1)/params[0] + params[1]
@@ -416,15 +416,15 @@ def fit(self, other, parameter, lim=None, col=0, nout=10):
     x0 = [np.float(sts.std()['value'][0]/ots.std()['value'][0]), 0.3]   #np.float(sts.mean()['value'][0]-ots.mean()['value'][0])]
     #pdb.set_trace()
     
-    print "Initial guess parameters: a={0}, b={1}".format(x0[0],x0[1])
+    print("Initial guess parameters: a={0}, b={1}".format(x0[0],x0[1]))
     
     # Do minimization
 
 #    xopt = (np.array([0, 0]), 0, 0, 0, 0, 0, 1)
 #    while xopt[6] > 0:
     
-    print "Using fmin_bfgs for 50 iterations..."
-    print "x0 = {0}".format(x0)
+    print("Using fmin_bfgs for 50 iterations...")
+    print("x0 = {0}".format(x0))
     xopt = fmin_bfgs(my_fit, x0, fprime=None, 
                      args=(sts,ots,parameter,col,nout), 
                      gtol=1.0000000000000001e-01, 
@@ -446,7 +446,7 @@ def fit(self, other, parameter, lim=None, col=0, nout=10):
 #        x0 = xopt[0]
     
     # Print results
-    print "Optimized parameters: a={0}, b={1}".format(xopt[0][0],xopt[0][1])
+    print("Optimized parameters: a={0}, b={1}".format(xopt[0][0],xopt[0][1]))
     return xopt
 
 
@@ -470,7 +470,7 @@ class climate_station(climate_data):
             self.path, self.fname = os.path.split(fname)
             items,comments,nl = get_property_info(fname=fname)
         
-            for key,value in items.items():
+            for key,value in list(items.items()):
                 if key in ['start_date','end_date']:
                     self.__dict__[key] = dateutil.parser.parse(value)
                 elif key in ['latitude','longitude']:
@@ -546,21 +546,21 @@ class climate_station(climate_data):
         # Get timeseries instances as dictionaries
         
         odict['raw'] = []
-        for key,ts in self.raw.items():
+        for key,ts in list(self.raw.items()):
             if ts != None:
                 odict['raw'].append((key,ts.__getstate__()))
             else:
                 odict['raw'].append((key,None))
         
         odict['daily'] = []
-        for key,ts in self.daily.items():
+        for key,ts in list(self.daily.items()):
             if ts != None:
                 odict['daily'].append((key,ts.__getstate__()))
             else:
                 odict['daily'].append((key,None))
         
         odict['patched'] = []
-        for key,ts in self.patched.items():
+        for key,ts in list(self.patched.items()):
             if ts != None:
                 odict['patched'].append((key,ts.__getstate__()))
             else:
@@ -578,11 +578,11 @@ class climate_station(climate_data):
         patched = sdict.pop('patched', None)
         self.__dict__.update(sdict)   # update attributes
 
-        if not self.__dict__.has_key('raw'):
+        if 'raw' not in self.__dict__:
             self.raw = {}
-        if not self.__dict__.has_key('daily'):
+        if 'daily' not in self.__dict__:
             self.daily = {}
-        if not self.__dict__.has_key('patched'):
+        if 'patched' not in self.__dict__:
             self.patched = {}
             
         if raw != None and type(raw)==list:
@@ -647,11 +647,11 @@ class climate_station(climate_data):
         success = False
         if ('station' not in paramsd): 
             # do we have a borehole name?
-            print "No station information in file! Cannot import."
+            print("No station information in file! Cannot import.")
             return False
         elif (paramsd['station'] != self.name):
             # Yes, but does it corespond to this station
-            print "metadata does not match station info"
+            print("metadata does not match station info")
             return False
         
         # The data file corresponds to this station
@@ -689,7 +689,7 @@ class climate_station(climate_data):
                 elif f == 'm':
                     mask[id,:] = True
                 elif f[0] == 'm':
-                    colid =  map(int,[s.rstrip().lstrip() for s in f[1:].rstrip(' ]').lstrip(' [').split(',')])
+                    colid =  list(map(int,[s.rstrip().lstrip() for s in f[1:].rstrip(' ]').lstrip(' [').split(',')]))
                     if colid not in [[],None]:
                         mask[id,colid] = True
 
@@ -699,7 +699,7 @@ class climate_station(climate_data):
             data = (data-32.)*5./9.
         
         # Merge the data to the logger         
-        if mtype=='none' or not self.raw.has_key(dtype) or  \
+        if mtype=='none' or dtype not in self.raw or  \
                             not isinstance(self.raw[dtype], myts):
             # if the station contains no data or we chose to 
             # overwrite everything (mtype='none')
@@ -735,22 +735,22 @@ class climate_station(climate_data):
         if path == None and self.path != None:
             path = self.path
         if path == None:
-            print "No path specified for auto processing! Nothing done...!"
+            print("No path specified for auto processing! Nothing done...!")
             return
         # fname is the filename without the .py/.pyc extention
 
         fullfile_noext = os.path.join(path,fname)
         pyfile = fullfile_noext+".py"
         if os.path.isfile(pyfile):
-            execfile(pyfile, {}, locals())
+            exec(compile(open(pyfile, "rb").read(), pyfile, 'exec'), {}, locals())
         else:
-            print "Specified auto processing file not found! Nothing done ...!"
-            print "File name: {0}".format(pyfile)
+            print("Specified auto processing file not found! Nothing done ...!")
+            print("File name: {0}".format(pyfile))
             return
         
         locals()['auto_process'](self)
         
-        print "Applied processing steps from {0}".format(pyfile)
+        print("Applied processing steps from {0}".format(pyfile))
 
 
 
@@ -765,18 +765,18 @@ class climate_station(climate_data):
             if dtype in self.raw and self.raw[dtype] != None:
                 freq = int(1/self.raw[dtype].estimate_frequency())
                 if freq < 1 or freq > 48:
-                    print ""
-                    print "Estimated frequency of data series " + dtype + \
-                        " is outside common\n range (1-48 points per day)."
-                    print "Aborting calculation of daily average. "
-                    print ""
+                    print("")
+                    print("Estimated frequency of data series " + dtype + \
+                        " is outside common\n range (1-48 points per day).")
+                    print("Aborting calculation of daily average. ")
+                    print("")
                     return
                 
                 # Get daily average 
                 if freq >= 1:
                     self.daily[dtype] = self.raw[dtype].calc_daily_avg(mindata=freq)
                 else:
-                    print "Data frequency is less than 1 point per day...!"
+                    print("Data frequency is less than 1 point per day...!")
                     self.daily[dtype] = self.raw[dtype].calc_daily_avg(mindata=1)
         
         return True
@@ -829,11 +829,11 @@ class climate_station(climate_data):
             day   = d.day
             
             # contains dictionary with month-numbers as keys
-            if not missing_dict.has_key(year):
+            if year not in missing_dict:
                 missing_dict[year] = dict()
             
             # the value is a list with any missing days in that month
-            if not missing_dict[year].has_key(month):
+            if month not in missing_dict[year]:
                 missing_dict[year][month] = [d]
             else:
                 missing_dict[year][month].append(d)
@@ -851,7 +851,7 @@ class climate_station(climate_data):
                     
                     newts.insert_timesteps(missing_dict[y][m],fill_value=fill_val, sort=False)
                 else:
-                    print "There are %i missing days in the month %i-%i. Nothing added to timeseries!" % (len(missing_dict[y][m]),y,m)
+                    print("There are %i missing days in the month %i-%i. Nothing added to timeseries!" % (len(missing_dict[y][m]),y,m))
         
         # sort and store data
         newts.sort_chronologically()
@@ -894,7 +894,7 @@ class climate_station(climate_data):
 
         years = {}
         for id,t in enumerate(time):
-            if years.has_key(t.year):
+            if t.year in years:
                 years[t.year] = np.ma.vstack((years[t.year],data[id]))
             else: 
                 years[t.year] = data[id]
@@ -969,7 +969,7 @@ class climate_station(climate_data):
         # AT data for that year as value
         years = {}
         for id,t in enumerate(time):
-            if years.has_key(t.year):
+            if t.year in years:
                 years[t.year] = np.append(years[t.year],data[id])
             else: 
                 years[t.year] = np.array(data[id])
@@ -1477,20 +1477,20 @@ def CDload(fname, sep=',', paramsd=None, hlines=None):
         try:
             times = np.array([dateutil.parser.parse(t,yearfirst=True,dayfirst=True).date() for t in times])
         except:
-            print "!!!! Problems parsing times from input file... starting debugger."
+            print("!!!! Problems parsing times from input file... starting debugger.")
             pdb.set_trace()    
     else:
         # the dataset contains dates and times
         try:
             times = np.array([dateutil.parser.parse(t+' '+paramsd['tzinfo'],yearfirst=True,dayfirst=True) for t in times])
         except:
-            print "!!!! Problems parsing times from input file... starting debugger."
+            print("!!!! Problems parsing times from input file... starting debugger.")
             pdb.set_trace()    
     
-    if paramsd.has_key('file_as_tz'):
+    if 'file_as_tz' in paramsd:
         times = np.array([t.astimezone(paramsd['file_as_tz']) for t in times])
     
-    if paramsd.has_key('date_only') and paramsd['date_only'].lower() == 'true':
+    if 'date_only' in paramsd and paramsd['date_only'].lower() == 'true':
         times = np.array([t.date() for t in times])
         datetype = True
     
@@ -1525,9 +1525,9 @@ def CDload(fname, sep=',', paramsd=None, hlines=None):
     if datadim == 1:
         data[:,0] = data[:,0]*multiplier
     else:
-        print "Unexpected data dimension in ClimateData.CDload!"
-        print "Check file format and reader function"
-        print "will use multiplier on all data columns!"
+        print("Unexpected data dimension in ClimateData.CDload!")
+        print("Check file format and reader function")
+        print("will use multiplier on all data columns!")
         data = data*multiplier
         pdb.set_trace()
     
@@ -1673,7 +1673,7 @@ def read_climate_data(path=basepath,walk=True, clim=None, calc_daily=True, \
                     with open(os.path.join(dr, f),'rb') as pklfh:
                         tmpstation = pickle.load(pklfh)
                 except:
-                    print "Could not read file: {0}".format(os.path.join(dr, f))
+                    print("Could not read file: {0}".format(os.path.join(dr, f)))
                     tmpstation = None
                     
                 if  type(tmpstation) == climate_station:
@@ -1682,8 +1682,8 @@ def read_climate_data(path=basepath,walk=True, clim=None, calc_daily=True, \
                         clim[tmpstation.name].path = dr
                         clim[tmpstation.name].fname = f
                         clim['pkl_names'].append(tmpstation.name)
-                        print '\n**************************************************************\n'
-                        print 'Climate station ' + tmpstation.name + ' created from pickled file!'
+                        print('\n**************************************************************\n')
+                        print('Climate station ' + tmpstation.name + ' created from pickled file!')
                         entries_to_skip.append(id)
             elif f2.endswith('post_processing.py'):
                 clim['postproc_files'].append(os.path.join(dr, f))
@@ -1698,8 +1698,8 @@ def read_climate_data(path=basepath,walk=True, clim=None, calc_daily=True, \
                     tmpstation.name not in clim:
                     
                     clim[tmpstation.name] = tmpstation
-                    print '\n**************************************************************\n'
-                    print 'Climate station ' + tmpstation.name + ' created'
+                    print('\n**************************************************************\n')
+                    print('Climate station ' + tmpstation.name + ' created')
                 entries_to_skip.append(id)
                 
             # ...or is it a direvtory with certain names
@@ -1739,16 +1739,16 @@ def read_climate_data(path=basepath,walk=True, clim=None, calc_daily=True, \
                     if (clim['names'] == None or \
                         paramsd['station'] in clim['names']) and \
                         paramsd['station'] not in clim['pkl_names']:
-                        if paramsd['station'] in clim.keys():
+                        if paramsd['station'] in list(clim.keys()):
                             stat = clim[paramsd['station']].add_data(fullf, paramsd=paramsd, hlines=hlines)
                             if stat:
-                                print f + " added to station " + paramsd['station']
+                                print(f + " added to station " + paramsd['station'])
                             else:
-                                print "NB!" +  f + " could not be added to station " + paramsd['station']
+                                print("NB!" +  f + " could not be added to station " + paramsd['station'])
                                 pdb.set_trace()
                         else:
-                            print "NB!" + f + " tries to reference non-exsisting " + \
-                                  "station " + paramsd['station']
+                            print("NB!" + f + " tries to reference non-exsisting " + \
+                                  "station " + paramsd['station'])
     #..........................................................................
     def _post_process(clim, fullfile):
         """
@@ -1772,34 +1772,34 @@ def read_climate_data(path=basepath,walk=True, clim=None, calc_daily=True, \
         if type(fullfile) in [list, tuple]:
             fullfile = os.path.join(*fullfile)
         if os.path.isfile(fullfile):
-            execfile(fullfile, {}, locals())
+            exec(compile(open(fullfile, "rb").read(), fullfile, 'exec'), {}, locals())
         else:
-            print "Specified post processing file not found! Nothing done ...!"
-            print "File name: {0}".format(fullfile)
+            print("Specified post processing file not found! Nothing done ...!")
+            print("File name: {0}".format(fullfile))
             return
         
         locals()['post_process'](clim)
         
-        print "Applied processing steps from {0}".format(fullfile)
+        print("Applied processing steps from {0}".format(fullfile))
         
         return clim
     #..........................................................................
     
-    print "read_climate_data is called with the following parameters:"
-    print "Path: {0}".format(path)
-    print "walk: {0}".format(walk)
+    print("read_climate_data is called with the following parameters:")
+    print("Path: {0}".format(path))
+    print("walk: {0}".format(walk))
     if clim == None:
-        print "Station dictionary (clim): Available"
+        print("Station dictionary (clim): Available")
     else:
-        print "Station dictionary (clim): None"
-    print "Calculate daily average: {0}".format(calc_daily)
-    print "Read only stations with names: {0}".format(names)
-    print "Auto process: {0}".format(auto_process)
-    print "Post process: {0}".format(post_process)
-    print "Read Pickle files: {0}".format(read_pkl)    
+        print("Station dictionary (clim): None")
+    print("Calculate daily average: {0}".format(calc_daily))
+    print("Read only stations with names: {0}".format(names))
+    print("Auto process: {0}".format(auto_process))
+    print("Post process: {0}".format(post_process))
+    print("Read Pickle files: {0}".format(read_pkl))    
     
-    print " "
-    raw_input("Beware, postprocessing is not properly handled! (press enter to proceed)")
+    print(" ")
+    input("Beware, postprocessing is not properly handled! (press enter to proceed)")
                       
     if type(path) in [list, tuple]:
         # Concatenate path elements
@@ -1828,7 +1828,7 @@ def read_climate_data(path=basepath,walk=True, clim=None, calc_daily=True, \
     del clim['pkl_names']
     del clim['postproc_files']
     
-    print '\n**************************************************************\n'
+    print('\n**************************************************************\n')
         
     if auto_process:
         changes = False
@@ -1837,12 +1837,12 @@ def read_climate_data(path=basepath,walk=True, clim=None, calc_daily=True, \
                 clim[cs].auto_process()
                 changes = True
         if changes:
-            print '\n**************************************************************\n'    
+            print('\n**************************************************************\n')    
     
     if calc_daily:
         for cs in clim:
             if cs not in pkl_names:
-                print 'Calculating daily timeseries for station ' + cs
+                print('Calculating daily timeseries for station ' + cs)
                 clim[cs].calc_daily_avg()
     
     # pdb.set_trace()
@@ -1856,12 +1856,12 @@ def read_climate_data(path=basepath,walk=True, clim=None, calc_daily=True, \
 
 def pickle_all(station_dict, path = None):
     if path == None:
-        for name,cs in station_dict.items():
+        for name,cs in list(station_dict.items()):
             cs.pickle()
-            print "Pickled climate station {0}".format(name)
+            print("Pickled climate station {0}".format(name))
     else:
         pdb.set_trace()
-        for name,cs in station_dict.items():
+        for name,cs in list(station_dict.items()):
             if cs.fname == None:
                 fname = cs.name
             else:
@@ -1877,16 +1877,16 @@ def pickle_all(station_dict, path = None):
                 fullfile = os.path.join(path,fname)
             cs.pickle(fullfile_noext=fullfile)
             
-            print "Pickled climate station {0} to {1}.pkl".format(name,fullfile)    
+            print("Pickled climate station {0} to {1}.pkl".format(name,fullfile))    
 
 
 
 def plot_data_coverage(clim, dtype = 'AT', datetype='unmasked', **kwargs):
-    if kwargs.has_key('axes'):
+    if 'axes' in kwargs:
         ax = kwargs.pop('axes')
-    elif kwargs.has_key('Axes'):
+    elif 'Axes' in kwargs:
         ax = kwargs.pop('Axes')
-    elif kwargs.has_key('ax'):
+    elif 'ax' in kwargs:
         ax = kwargs.pop('ax')
     else:
         fh = pylab.figure()
@@ -1956,7 +1956,7 @@ def n_permutations(arr1, n, arr2=None):
                 arr2.append(arr1p)
             else:
                 # otherwise permute again!
-                print "array already in arr2! Permuting again!"
+                print("array already in arr2! Permuting again!")
     return arr2            
 
 def factorial(n):
@@ -1969,7 +1969,7 @@ def factorial(n):
     return sum
 
 
-def calcNormalYear(ts,startdate=dt.date(1961,01,01),enddate=dt.date(1990,12,31)):
+def calcNormalYear(ts,startdate=dt.date(1961,0o1,0o1),enddate=dt.date(1990,12,31)):
     """ calcNormalYear takes a timeseries with one data column and calculates a 
     daily average over the climate normal period of 1961-01-01 to 1990-12-31
     
@@ -2015,11 +2015,11 @@ def calcNormalYear(ts,startdate=dt.date(1961,01,01),enddate=dt.date(1990,12,31))
     
     # Create a dixtionary with month/day tuples as keys and an array of two zeros
     # as value for each key.
-    NYd = dict(zip(days,np.zeros((len(days),2))))
+    NYd = dict(list(zip(days,np.zeros((len(days),2)))))
     
     # loop over every year in timeseries (as defined by split_years, thus a
     # data year may extend across two calendar years.
-    for k in ydict.keys():
+    for k in list(ydict.keys()):
         # Now loop over dates in ydict value
         data = np.ma.filled(ydict[k].data, 0.)
         #pdb.set_trace()
@@ -2032,15 +2032,15 @@ def calcNormalYear(ts,startdate=dt.date(1961,01,01),enddate=dt.date(1990,12,31))
                 pdb.set_trace()
     
     # Produce record arrays and sort.
-    NYdk=np.array(NYd.keys(),dtype=[('m',int),('d',int)])
-    NYdv=np.array(NYd.values())
+    NYdk=np.array(list(NYd.keys()),dtype=[('m',int),('d',int)])
+    NYdv=np.array(list(NYd.values()))
     id = np.argsort(NYdk,order=('m','d'))
     
     # Produce dictionary with averaged data and specification of number of averaged values
     NYs = dict(time=NYdk[id], dat=NYdv[id,0]/NYdv[id,1], ndays=NYdv[id,1])
     
     # Convert dictionary of sums to dictionary of averages.
-    for k in NYd.keys():
+    for k in list(NYd.keys()):
         NYd[k] = NYd[k][0]/NYd[k][1]
     
     # return the two dictionaries
@@ -2050,12 +2050,12 @@ def calcNormalYear(ts,startdate=dt.date(1961,01,01),enddate=dt.date(1990,12,31))
 
 
 def plotNormalYear(NY):
-    if NY.has_key('time'):
+    if 'time' in NY:
         tm = [dt.date(1988,t[0],t[1]) for t in NY['time']]
         plt.plot_date(mpl.dates.date2num(tm),NY['dat'],'-k')
     else:
-        NYk=np.array(NY.keys(),dtype=[('m',int),('d',int)])
-        NYv=np.array(NY.values())
+        NYk=np.array(list(NY.keys()),dtype=[('m',int),('d',int)])
+        NYv=np.array(list(NY.values()))
         id = np.argsort(NYk,order=('m','d'))
         tm = [dt.date(1988,t[0],t[1]) for t in NYk[id]]
         plt.plot_date(mpl.dates.date2num(tm),NYv[id],'-k')
@@ -2087,15 +2087,15 @@ def plotMAAT(data,styles=None,labels='',figsize=(15,6),lim=None):
     for id,d in enumerate(data):
         
         if 'gridpoint' in d.__dict__:
-            if 'scaled' in d.__dict__ and d.scaled.has_key('AT') and d.scaled['AT'] != None:
+            if 'scaled' in d.__dict__ and 'AT' in d.scaled and d.scaled['AT'] != None:
                 MAAT = d.scaled['AT'].limit(lim).calc_annual_avg()
-            elif 'patched' in d.__dict__ and d.patched.has_key('AT') and d.patched['AT'] != None:
+            elif 'patched' in d.__dict__ and 'AT' in d.patched and d.patched['AT'] != None:
                 MAAT = d.patched['AT'].limit(lim).calc_annual_avg()
             else:
                 MAAT = d.raw['AT'].limit(lim).calc_annual_avg()
-        elif 'patched' in d.__dict__ and d.patched.has_key('AT') and d.patched['AT'] != None:
+        elif 'patched' in d.__dict__ and 'AT' in d.patched and d.patched['AT'] != None:
             MAAT = d.patched['AT'].limit(lim).calc_annual_avg()
-        elif 'raw' in d.__dict__ and d.raw.has_key('AT') and d.raw['AT'] != None:
+        elif 'raw' in d.__dict__ and 'AT' in d.raw and d.raw['AT'] != None:
             MAAT = d.raw['AT'].limit(lim).calc_annual_avg()
         else:
             raise TypeError('Dont recognize the type of time series!')
@@ -2180,13 +2180,13 @@ class ILU_stations:
         data = np.array(data).reshape([-1,1])
         
         self.data['P'] = myts(data,times)
-        print "plotting original series"
+        print("plotting original series")
         plt.plot_date(times, data, '-g')
         permutations = n_permutations(self.data['P'].get_year_list()[0:-1],5)
         self.permutations = permutations
         for p in permutations:
             ts = self.permute_timeseries(p)
-            print "plotting permuted series"
+            print("plotting permuted series")
             plt.plot_date(ts.times, ts.data, '-r')
 
 
