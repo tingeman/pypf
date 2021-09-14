@@ -361,7 +361,10 @@ class Borehole:
         cnames = list(pvdf.columns.names)
 
         # Add SensorName
-        sensor_names = [dfsensor[dfsensor['SensorID'] == x]['SensorName'].values[0] for x in clevels[0]]
+        sensor_names = [dfsensor[dfsensor['SensorID'] == x]['SensorName'].values[0] for x in clevels[0] if any(dfsensor['SensorID'] == x)]
+        # final condition "if any...." added here and below on 2020-1019 because an unused
+        # level value showed up in Kangerlussuaq data, and caused an indexing error
+        
         sensor_name_list = list(np.unique(sensor_names))
         # Insert the SensorType information as level 2
         clevels.insert(1, sensor_name_list)
@@ -374,7 +377,7 @@ class Borehole:
         # 2.  DataTypeID
 
         # Add SensorType
-        sensor_types = [dfsensor[dfsensor['SensorID'] == x]['SensorType'].values[0] for x in clevels[0]]
+        sensor_types = [dfsensor[dfsensor['SensorID'] == x]['SensorType'].values[0] for x in clevels[0] if any(dfsensor['SensorID'] == x)]
         sensor_type_list = list(np.unique(sensor_types))
         # Insert the SensorType information as level 2
         clevels.insert(2, sensor_type_list)
@@ -388,7 +391,7 @@ class Borehole:
         # 3.  DataTypeID
 
         # Append DataUnit
-        clevels.append([dfdt['Unit'][dfdt['DataTypeID'] == x].values[0] for x in clevels[3]])
+        clevels.append([dfdt['Unit'][dfdt['DataTypeID'] == x].values[0] for x in clevels[3] if any(dfdt['DataTypeID'] == x)])
         clabels.append(clabels[3])    # We use same codes as for DataTypeID, which is now index 2, after insertion of SensorType data
         cnames.append('DataUnit')
 
@@ -400,7 +403,7 @@ class Borehole:
         # 4.  DataUnit
 
         # Append Sensor depth as new level at end of multiindex
-        sensor_depths = [dfsensor[dfsensor['SensorID'] == x]['CoordZ'].values[0] for x in clevels[0]]
+        sensor_depths = [dfsensor[dfsensor['SensorID'] == x]['CoordZ'].values[0] for x in clevels[0] if any(dfsensor['SensorID'] == x)]
         sensor_depth_list = list(np.unique(sensor_depths))
         clevels.append(sensor_depth_list)
         clabels.append([sensor_depth_list.index(sd) for sd in sensor_depths])
@@ -416,7 +419,7 @@ class Borehole:
 
         # Finally insert datatype names, instead of the the DataTypeIDs
         # This means updating level 2 (of the original multiindex)
-        clevels[3] = [dfdt['Name'][dfdt['DataTypeID'] == x].values[0] for x in clevels[3]]
+        clevels[3] = [dfdt['Name'][dfdt['DataTypeID'] == x].values[0] for x in clevels[3] if any(dfdt['DataTypeID'] == x)]
         cnames[3] = 'DataType'
 
         # Now we have:
@@ -1195,8 +1198,7 @@ class Borehole:
         return ax
 
     def plot_trumpet(self, fullts=False, lim=None, end_date=None, args=None,
-                     xlim=None, ylim=None, 
-                     nyears=None, plotMeanGT=True, fs=12, ignore_mask=False,
+                     xlim=None, ylim=None, nyears=None, plotMeanGT=True, fs=12, ignore_mask=False,
                      depths='all', **kwargs):
         """
         Method to plot trumpet curve for specific time interval (usually 1 year)
@@ -1306,6 +1308,8 @@ class Borehole:
             args['vline'] = defaultargs['vline']
         if not args.has_key('grid'):
             args['grid'] = defaultargs['grid']
+        
+        figsize = kwargs.pop('figsize', (6.4,4.8))
 
         if kwargs.has_key('axes'):
             ax = kwargs.pop('axes')
@@ -1314,7 +1318,7 @@ class Borehole:
         elif kwargs.has_key('ax'):
             ax = kwargs.pop('ax')
         else:
-            fh = plt.figure()
+            fh = plt.figure(figsize=figsize)
             ax = plt.axes()
 
         if not fullts:
@@ -1601,7 +1605,7 @@ def split_year_date_lists(start='1960-08-01', end=dt.date.today(), month=8, day=
 
 
 
-def plot_trumpet(bhole, end_date=None, nyears=1, lim=None, xlim=None, ylim=None, depths=None, annotate=True, Tzaa=None, Dzaa=None, Tstd=None):
+def plot_trumpet(bhole, end_date=None, nyears=1, lim=None, xlim=None, ylim=None, depths=None, annotate=True, Tzaa=None, Dzaa=None, Tstd=None, **kwargs):
     args = dict(
         maxGT=dict(
             linestyle='-',
@@ -1635,12 +1639,12 @@ def plot_trumpet(bhole, end_date=None, nyears=1, lim=None, xlim=None, ylim=None,
 
 
     if lim is None:
-        bhole.plot_trumpet(end=end_date, nyears=1, xlim=xlim, ylim=ylim, args=args, depths=depths)
+        bhole.plot_trumpet(end=end_date, nyears=1, xlim=xlim, ylim=ylim, args=args, depths=depths, **kwargs)
         lim = nyears2lim(bhole.daily_ts.index[-1], 1)
     else:
         # pdb.set_trace()
         lim = fix_lim(lim)  # ensure dates
-        bhole.plot_trumpet(lim=lim, xlim=xlim, ylim=ylim, args=args, depths=depths)
+        bhole.plot_trumpet(lim=lim, xlim=xlim, ylim=ylim, args=args, depths=depths, **kwargs)
 
     z0, maxGT = bhole.get_ALT(lim=lim, depths=depths)
     # z0, maxT, maxT_d = bhole.get_ALT(end_date=end_date, nyears=nyears,
