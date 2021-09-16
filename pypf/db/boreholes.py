@@ -21,7 +21,7 @@
 import copy
 import datetime as dt
 import os
-import pdb
+import ipdb as pdb
 from collections import OrderedDict
 
 import dateutil
@@ -32,7 +32,7 @@ import matplotlib.transforms as transforms
 import matplotlib.dates as mpld
 import numpy as np
 import pandas as pd
-import pathlib2 as pathlib
+import pathlib
 import pydatastorage.h5io as h5io
 #import pypf.db.boreholes as bh
 import pypf.db.zoom_span as zoom_span
@@ -323,16 +323,43 @@ class Borehole:
         df = pd.DataFrame(data)
         dfdt = pd.DataFrame(datatype)
         dfsensor = pd.DataFrame(sensor)
+        
+        if any(df.duplicated(subset=['TimeStamp', 'SensorID', 'DataTypeID', 'Value'])):
+            print('Data contains duplicate entries... consider cleaning up database.')
+            print('Discarding duplicate values...')
+            df.drop_duplicates(subset=['TimeStamp', 'SensorID', 'DataTypeID', 'Value'], inplace=True)
+        
+        # decode bytestrings read from hdf5
+        def decode_strings(thisdf):
+            str_df = thisdf.select_dtypes([np.object])
+            try:
+                str_df = str_df.stack().str.decode('ascii').unstack()
+            except:
+                # the above line may fail if there are no string columns in 
+                # the dataframe. In that case fail silently.
+                pass
+            for col in str_df:
+                thisdf[col] = str_df[col]
+            return thisdf
+        
+        df = decode_strings(df)
+        dfdt = decode_strings(dfdt)
+        dfsensor = decode_strings(dfsensor)
 
+        #pdb.set_trace()
+        
         # Make the time stamp human readable
         df['TimeStamp'] = DataSet.get_time(list(df['TimeStamp']))
+        df['TimeStamp'] = df['TimeStamp'].dt.tz_localize(tz='utc').dt.tz_convert(tz=DataSet.timeepoch.tzinfo)
         datafile.close()
 
         # Now reorganize data in standard table format
-        pvdf = pd.pivot_table(df, index='TimeStamp', columns=['SensorID', 'DataTypeID'], values=['Value'])
+        #pvdf = pd.pivot_table(df, index='TimeStamp', columns=['SensorID', 'DataTypeID'], values=['Value'])
+        pvdf = df.pivot_table(index='TimeStamp', columns=['SensorID', 'DataTypeID'], values=['Value'])
 
         # And get the masks of the data
-        pvdf_mask = pd.pivot_table(df, index='TimeStamp', columns=['SensorID', 'DataTypeID'], values=['Masked'])
+        #pvdf_mask = pd.pivot_table(df, index='TimeStamp', columns=['SensorID', 'DataTypeID'], values=['Masked'])
+        pvdf_mask = df.pivot(index='TimeStamp', columns=['SensorID', 'DataTypeID'], values=['Masked'])
 
         # We want the multiindex to have the following levels:
         # 0.  SensorID
