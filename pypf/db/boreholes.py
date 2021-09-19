@@ -350,7 +350,8 @@ class Borehole:
         
         # Make the time stamp human readable
         df['TimeStamp'] = DataSet.get_time(list(df['TimeStamp']))
-        df['TimeStamp'] = df['TimeStamp'].dt.tz_localize(tz='utc').dt.tz_convert(tz=DataSet.timeepoch.tzinfo)
+        #df['TimeStamp'] = df['TimeStamp'].dt.tz_localize(tz='utc').dt.tz_convert(tz=DataSet.timeepoch.tzinfo)
+        df['TimeStamp'] = df['TimeStamp'].dt.tz_localize(tz='utc') # Timestamps from HDF files are always stored as UTC
         datafile.close()
 
         # Now reorganize data in standard table format
@@ -898,6 +899,7 @@ class Borehole:
         # convert depths to column indices
         did = get_indices(maxGT.index.get_level_values('CoordZ'), depths)
         did = [i for i in did if not np.isnan(i)]  # remove nan values
+        
 
         maxT = maxGT[did].values
         maxT_d = maxGT[did].index.get_level_values('CoordZ').values
