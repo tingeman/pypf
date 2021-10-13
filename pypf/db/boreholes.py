@@ -109,7 +109,7 @@ def nyears2lim(end_date=None, nyears=1):
     return [start, end_date]
 
 
-def fix_lim(lim):
+def fix_lim(lim, tzinfo=dt.timezone.utc):
     if lim is None:
         return
 
@@ -117,6 +117,8 @@ def fix_lim(lim):
     for lid, thistime in enumerate(lim):
         if type(thistime) == str:
             newlist.append(dateutil.parser.parse(thistime, yearfirst=True, dayfirst=False).date())
+        elif type(thistime) in [dt.date]:
+            newlist.append(dt.datetime(*thistime.timetuple()[0:6],tzinfo=tzinfo))
         elif type(thistime) in [dt.datetime, dt.date]:
             newlist.append(thistime)
         else:
@@ -636,7 +638,7 @@ class Borehole:
         # output.close()
 
 
-    def get_limmits(self, fullts=False):
+    def get_limits(self, fullts=False):
         """Get the date limits of the time series.
 
         :param fullts: (boolean, default False) use rawdata full time series
@@ -742,7 +744,7 @@ class Borehole:
                 df = df.loc[datelist]
             
             if lim is not None:
-                meanGT = df.loc[lim[0]:lim[1]].mean()
+                meanGT = df.loc[lim[0].date():lim[1].date()].mean()
             else:
                 meanGT = df.mean()
 
@@ -797,7 +799,7 @@ class Borehole:
                 df = df.loc[datelist]
             
             if lim is not None:
-                maxGT = df.loc[lim[0]:lim[1]].max()
+                maxGT = df.loc[lim[0].date():lim[1].date()].max()
             else:
                 maxGT = df.max()
 
@@ -844,7 +846,7 @@ class Borehole:
                 df = df.loc[datelist]
             
             if lim is not None:
-                minGT = df.loc[lim[0]:lim[1]].min()
+                minGT = df.loc[lim[0].date():lim[1].date()].min()
             else:
                 minGT = df.min()
             
@@ -901,8 +903,8 @@ class Borehole:
         did = [i for i in did if not np.isnan(i)]  # remove nan values
         
 
-        maxT = maxGT[did].values
-        maxT_d = maxGT[did].index.get_level_values('CoordZ').values
+        maxT = maxGT.iloc[did].values
+        maxT_d = maxGT.iloc[did].index.get_level_values('CoordZ').values
 
         # z0 = find_zero(maxT, maxT_d)[0]
         z0 = find_zero(maxT, maxT_d)
@@ -999,7 +1001,7 @@ class Borehole:
                 self.calc_daily_average()
 
             if lim is None:
-                lim = self.get_limmits(fullts=False)
+                lim = self.get_limits(fullts=False)
 
             # Ensure limit consists of two datetime objects
             lim = fix_lim(lim)
@@ -1046,7 +1048,7 @@ class Borehole:
 
         else:
             if lim is None:
-                lim = self.get_limmits(fullts=True)
+                lim = self.get_limits(fullts=True)
 
             # Ensure limit consists of two datetime objects
             lim = fix_lim(lim)
@@ -1384,12 +1386,12 @@ class Borehole:
         maxGT_depths = maxGT.index.get_level_values('CoordZ')
         did = get_indices(maxGT_depths, depths)
         did = [i for i in did if not np.isnan(i)]  # remove nan values
-        ax.plot(maxGT[did], maxGT_depths[did], **args['maxGT'])
+        ax.plot(maxGT.iloc[did], maxGT_depths[did], **args['maxGT'])
 
         minGT_depths = minGT.index.get_level_values('CoordZ')
         did = get_indices(minGT_depths, depths)
         did = [i for i in did if not np.isnan(i)]  # remove nan values
-        ax.plot(minGT[did], minGT_depths[did], **args['minGT'])
+        ax.plot(minGT.iloc[did], minGT_depths[did], **args['minGT'])
 
         # ax.plot(maxGT[did], maxGT['depth'][did], **args['maxGT'])  # ,'-k',marker='.', markersize=7,**kwargs)
         # ax.plot(minGT[did], minGT['depth'][did], **args['minGT'])  # ,'-k',marker='.', markersize=7,**kwargs)
@@ -1417,7 +1419,7 @@ class Borehole:
             meanGT_depths = meanGT.index.get_level_values('CoordZ')
             did = get_indices(meanGT_depths, depths)
             did = [i for i in did if not np.isnan(i)]  # remove nan values
-            ax.plot(meanGT[did], meanGT_depths[did], **args['MeanGT'])
+            ax.plot(meanGT.iloc[did], meanGT_depths[did], **args['MeanGT'])
 
 
         if ylim is None:
@@ -1514,8 +1516,11 @@ class Borehole:
 
             # get copies of the data and times
             # TODO: Reconsider way to handle getting only ground temperatures
-            data = self.daily_ts[lim[0]:lim[1]].iloc[:, did].values
-            ordinals = list(map(dt.datetime.toordinal, self.daily_ts[lim[0]:lim[1]].index))
+            data = self.daily_ts[lim[0].date():lim[1].date()].iloc[:, did].values
+            ordinals = list(map(dt.datetime.toordinal, self.daily_ts[lim[0].date():lim[1].date()].index))
+            
+            times = self.daily_ts[lim[0].date():lim[1].date()].index
+            
             #depths = self.daily_ts.columns.get_level_values('CoordZ')[did]
             #depths = depths[depths >= 0]
             depths = np.array(depths)
@@ -1551,14 +1556,13 @@ class Borehole:
             data = df.values
             depths = np.array(df.columns)
             
-            
-            
             # Find the maximum and minimum temperatures, and round up/down
             mxn = np.nanmax(np.abs([np.floor(np.nanmin(data)),
                                     np.ceil(np.nanmax(data))]))
             levels = np.arange(-mxn, mxn + 1)
             
-            xx, yy = np.meshgrid(ordinals, depths)
+            #xx, yy = np.meshgrid(ordinals, depths)
+            xx, yy = np.meshgrid(times, depths)
 
             cf = ax.contourf(xx, yy, data.T, levels, cmap=cmap)
 
@@ -1617,13 +1621,13 @@ def split_year_date_lists(start='1960-08-01', end=dt.date.today(), month=8, day=
     # We want have the first split year encompas the specified start date
     # Thus, if the start date is before ????-month-day, go one year back
 
-    if lim[0] < dt.date(lim[0].year, month, day):
+    if lim[0].date() < dt.date(lim[0].year, month, day):
         lim[0] = lim[0].replace(year=lim[0].year-1)
 
     # We want the last split year to encompas the specified end date
     # Thus, if the end date is after ????-month-day minus 1 day, add an extra year
 
-    if lim[1] > dt.date(lim[1].year, month, day)-dt.timedelta(days=1):
+    if lim[1].date() > dt.date(lim[1].year, month, day)-dt.timedelta(days=1):
         lim[1] = lim[1].replace(year=lim[1].year + 1)
 
     # Create list of start dates (XXXX-08-01) from first year of measurements to the current year
