@@ -1,4 +1,4 @@
-# Python Version: 2.7
+# Python Version: 3.9
 # mainly due to dependencies on inhouse packages
 
 # Change log
@@ -23,6 +23,7 @@ import datetime as dt
 import os
 import ipdb as pdb
 from collections import OrderedDict
+from rich import print
 
 import dateutil
 import matplotlib as mpl
@@ -38,9 +39,12 @@ import pydatastorage.h5io as h5io
 import pypf.db.zoom_span as zoom_span
 
 
-# requires pathlib 2
-# conda install -c anaconda pathlib2
+# Install instructions
 
+# conda create -n boreholes --python=3.9
+# conda install ipython matplotlib pandas numpy lxml openpyxl
+# conda install -c conda-forge ipdb pyproj rich
+# conda install -c anaconda pytables
 
 def ensure_paths_exist(paths):
     if isinstance(paths, str):
@@ -106,7 +110,7 @@ def nyears2lim(end_date=None, nyears=1):
     start = copy.copy(end_date).replace(year=end_date.year - nyears)
     start = start + dt.timedelta(days=1)
 
-    return [start, end_date]
+    return fix_lim([start, end_date])
 
 
 def fix_lim(lim, tzinfo=dt.timezone.utc):
@@ -116,7 +120,9 @@ def fix_lim(lim, tzinfo=dt.timezone.utc):
     newlist = []
     for lid, thistime in enumerate(lim):
         if type(thistime) == str:
-            newlist.append(dateutil.parser.parse(thistime, yearfirst=True, dayfirst=False).date())
+            mytime = dateutil.parser.parse(thistime, yearfirst=True, dayfirst=False)
+            newlist.append(mytime.replace(tzinfo=tzinfo))
+            #newlist.append(dateutil.parser.parse(thistime, yearfirst=True, dayfirst=False).date())
         elif type(thistime) in [dt.date]:
             newlist.append(dt.datetime(*thistime.timetuple()[0:6],tzinfo=tzinfo))
         elif type(thistime) in [dt.datetime, dt.date]:
@@ -142,7 +148,6 @@ def find_zero(xi, yi, exclude_zeros=True):
     # identified at the top of a 0C interval.
     #
     # There may be still some issues with [1, 0, 1] type situations, which may have to be handled.
-
 
     if exclude_zeros:
         # This code will check for xi elements equal zero, and
@@ -327,10 +332,24 @@ class Borehole:
         dfsensor = pd.DataFrame(sensor)
         
         if any(df.duplicated(subset=['TimeStamp', 'SensorID', 'DataTypeID', 'Value'])):
-            print('Data contains duplicate entries... consider cleaning up database.')
-            print('Discarding duplicate values...')
-            df.drop_duplicates(subset=['TimeStamp', 'SensorID', 'DataTypeID', 'Value'], inplace=True)
+            print('[bold yellow]Data contains duplicate entries... consider cleaning up database.[/bold yellow]')
+            print('[bold yellow]Discarding duplicate values...[/bold yellow]')
+            df.drop_duplicates(subset=['TimeStamp', 'SensorID', 'DataTypeID', 'Value'], inplace=True, keep='last')
         
+        df_dup = df.duplicated(subset=['TimeStamp', 'SensorID', 'DataTypeID'], keep=False)
+        if any(df_dup):
+            date_list = DataSet.get_time(list(df[df_dup]['TimeStamp']))
+            date_list = pd.to_datetime(date_list).normalize().unique().tolist()
+            date_list = [d.date() for d in date_list]
+            print('[bold red]>>  Data contains duplicate entries with different values...[/bold red]')
+            print('[bold red]>>  TimeStamp, SensorID and DataTypeID are identical, but values are different.[/bold red]')
+            print('[bold red]>>  This indicates a timezone issue when registering the data...[/bold red]')
+            print('[red]>>  Please investigate dates: [/red]')
+            for d in date_list:
+                print('[red]>>         {0}[/red]'.format(d))
+            print('[bold red]>>  For now... Discarding duplicate values (keep="last")...[/bold red]')
+            df.drop_duplicates(subset=['TimeStamp', 'SensorID', 'DataTypeID'], inplace=True, keep='last')
+
         # decode bytestrings read from hdf5
         def decode_strings(thisdf):
             str_df = thisdf.select_dtypes([np.object])
@@ -537,6 +556,7 @@ class Borehole:
                 continue  # line is empty, so continue
             
             print(line)
+            SensorIDs = self.rawdata_mask.columns.get_level_values(0)
             dat = line.strip().strip(';').split(';')
             dat = [s.strip() for s in dat]
             date1 = dat[0]
@@ -569,7 +589,7 @@ class Borehole:
         return self.merge(other)
 
     def sort_columns_by_depth(self):
-        self.daily_ts.sort_index(1,'CoordZ', sort_remaining=False, inplace=True)
+        self.daily_ts.sort_index(axis=1, level='CoordZ', sort_remaining=False, inplace=True)
         
     def get_header_info(self):
         """Converts the column headers (MultiIndex) to an OrderedDict
@@ -725,6 +745,27 @@ class Borehole:
             # TODO: Implement fancy fuzzy frequency checking and reindexing
             self.daily_ts = daily_ts
             
+
+    def get_date(self, date, fullts=False):
+        if not fullts:
+            gid = find(self.daily_ts.columns.get_level_values('CoordZ') >= 0)
+            #depths = np.take(self.daily_ts.columns.get_level_values('CoordZ'), gid).values
+
+            self.sort_columns_by_depth()
+            
+            #data = self.daily_ts.iloc[self.daily_ts.index.isin([date]), gid].values.flatten()
+            data = self.daily_ts.iloc[self.daily_ts.index.isin([date]), gid]
+            
+            if len(data) == 0:
+                raise ValueError('The requested date ({0}) is not in the dataset.'.format(date))
+            
+            data = data.T.reset_index()
+            data = data.rename(columns={data.columns[-1]: 'Value'})
+            
+            return data
+        else:
+            raise NotImplementedError('Full timeseries date extraction not yet implemented')
+
 
     def get_MeanGT(self, lim=None, datelist=None, fullts=False, ignore_mask=False):
         # TODO: Implement masking in get_MeanGT, get_MinGT and get_MaxGT
@@ -883,8 +924,10 @@ class Borehole:
 
         if lim is None:
             lim = nyears2lim(end_date, 1)
+        
+        lim = fix_lim(lim)
 
-        if (lim[0] > self.daily_ts.index[-1].date()) or (lim[1] < self.daily_ts.index[0].date()):
+        if (lim[0].date() > self.daily_ts.index[-1].date()) or (lim[1].date() < self.daily_ts.index[0].date()):
             raise IndexError('Requested date range is outside timeseries.')
 
         # prepare to filter on depths
@@ -934,7 +977,7 @@ class Borehole:
             raise NotImplementedError('Full timeseries handling not implemented!')
             # TODO: Implement full time series in zaa stats
 
-        zaa_stats = self.daily_ts.loc[lim[0]:lim[1]].describe().transpose()
+        zaa_stats = self.daily_ts.loc[lim[0].date():lim[1].date()].describe().transpose()
 
         zaa_stats = zaa_stats[zaa_stats.index.get_level_values('CoordZ') >= 0]
         zaa_stats = zaa_stats.sort_values('CoordZ')
@@ -1170,22 +1213,26 @@ class Borehole:
             fh = plt.figure()
             ax = plt.axes()
 
-        gid = find(self.daily_ts.columns.get_level_values('CoordZ') >= 0)
-        depths = np.take(self.daily_ts.columns.get_level_values('CoordZ'), gid).values
+        # gid = find(self.daily_ts.columns.get_level_values('CoordZ') >= 0)
+        # depths = np.take(self.daily_ts.columns.get_level_values('CoordZ'), gid).values
+        # 
+        # self.sort_columns_by_depth()
+        # 
+        # data = self.daily_ts.iloc[self.daily_ts.index.isin([date]), gid].values.flatten()
+        # 
+        # if len(data) == 0:
+        #     raise ValueError('The requested date ({0}) is not in the dataset.'.format(date))
 
-        self.sort_columns_by_depth()
+        data = self.get_date(date)
+        depths = data['CoordZ'].values
+        values = data['Value'].values
         
-        data = self.daily_ts.iloc[self.daily_ts.index.isin([date]), gid].values.flatten()
-        
-        if len(data) == 0:
-            raise ValueError('The requested date ({0}) is not in the dataset.'.format(date))
-
         if 'color' not in kwargs and 'c' not in kwargs:
             kwargs['color'] = 'k'
         if 'linestyle' not in kwargs and 'ls' not in kwargs:
             kwargs['linestyle'] = '-'
 
-        lh = ax.plot(data, depths, marker='.', markersize=7, **kwargs)
+        lh = ax.plot(values, depths, marker='.', markersize=7, **kwargs)
 
         lh[0].tag = 'gt'
 
@@ -1217,7 +1264,7 @@ class Borehole:
                           transform=ax.transAxes, fontsize=fs)
             t2h.tag = 'date'
             
-            if len(data[~np.isnan(data)])==0:
+            if len(data[~np.isnan(data['Value'])])==0:
                 t3h = ax.text(0.95, 0.175, 'No data available', horizontalalignment='right', \
                               verticalalignment='bottom', transform=ax.transAxes, fontsize=fs)
                 t3h.tag = 'no data'
@@ -1731,6 +1778,111 @@ def plot_trumpet(bhole, end_date=None, nyears=1, lim=None, xlim=None, ylim=None,
                 ha='right', va='top', fontsize=14)
 
     return (plt.gcf(), maxGT)
+
+
+#def plot_date(self, date, annotations=True, fs=12, xlim=None, ylim=None, show=True, **kwargs):
+def plot_date(bhole, date, xlim=None, ylim=None, **kwargs):
+    args = dict(
+        maxGT=dict(
+            linestyle='-',
+            lw=2,
+            color='r',
+            zorder=5,
+            label='Maximum'),
+        minGT=dict(
+            linestyle='-',
+            lw=2,
+            color='b',
+            zorder=5,
+            label='Minimum'),
+        MeanGT=dict(
+            linestyle='-',
+            lw=2,
+            color='g',
+            zorder=5,
+            label='Average'),
+        fill=None,
+        vline=dict(
+            linestyle='--',
+            lw=1.5,
+            color='k',
+            zorder=2),
+        grid=dict(
+            linestyle='-',
+            color='0.5',
+            zorder=0),
+        title=None)
+
+
+
+    bhole.plot_date(date, xlim=xlim, ylim=ylim, **kwargs)
+
+    tmp = bhole.daily_ts.loc[date].values
+    z = bhole.daily_ts.loc[date].index.get_level_values('CoordZ').values
+
+    tmp = tmp[z>0]
+    z = z[z>0]
+
+    # see this stackoverflow for inspiration how to handle signchanges
+    # https://stackoverflow.com/questions/2652368/how-to-detect-a-sign-change-for-elements-in-a-numpy-array
+    # especially this answer:
+    # https://stackoverflow.com/a/67968974
+
+    # problem is how to handle where temperature is exactly 0
+    # It should count as frozen if ground is frozen on either side, but not (?) if thawed on both sides...
+    # complication: multiple depths may have 0 temperature...
+
+    # The following works when there are not multiple 0-elements in succession
+    # s = np.sign(tmp)
+    # s = np.where(np.logical_and(s==0., np.logical_or(np.roll(s,1)==-1, np.roll(s,-1)==-1)), -1., s)
+
+    z_zero = find_zero(tmp, z)
+
+    top_sign = np.sign(tmp[0])
+    top_z = 0
+
+    if len(z_zero) > 0:
+        for zid, z in enumerate(z_zero):
+            this_sign = top_sign*(-1)**zid
+            
+            if this_sign == -1:
+                p1 = mpl.patches.Rectangle((-50, top_z), 100, z-top_z, ec='none', fc='#99CCFF', zorder=-10)    # frozen
+            else:
+                p1 = mpl.patches.Rectangle((-50, top_z), 100, z-top_z, ec='k', fc='#FFE4E4', zorder=-5)   # thawed
+            plt.gca().add_patch(p1)
+            top_z = z
+    else:
+        zid=-1
+
+    this_sign = top_sign*(-1)**(zid+1)
+    z = 1000
+
+    if this_sign == -1:
+        p1 = mpl.patches.Rectangle((-50, top_z), 100, z-top_z, ec='none', fc='#99CCFF', zorder=-10)    # frozen
+    else:
+        p1 = mpl.patches.Rectangle((-50, top_z), 100, z-top_z, ec='k', fc='#FFE4E4', zorder=-5)   # thawed
+    plt.gca().add_patch(p1)
+
+
+    ax = plt.gca()
+    
+    if ylim is None:
+        ylim = ax.get_ylim()
+        ax.set_ylim([ylim[0], 0])
+        
+    ylim = ax.get_ylim()
+    yspan = np.diff(ylim)
+    trans = transforms.blended_transform_factory(ax.transAxes, ax.transData)
+
+    #if annotate:
+    #    ax.text(0.97, z0 + 0.02 * yspan, 'Active layer', transform=trans,
+    #            ha='right', va='bottom', fontsize=14)
+    #    ax.text(0.97, z0 - 0.02 * yspan, 'Permafrost', transform=trans,
+    #            ha='right', va='top', fontsize=14)
+
+    return (plt.gcf())
+
+
 
 
 # This code refers to the old borhole module... should not be needed now...
