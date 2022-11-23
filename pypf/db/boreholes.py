@@ -1063,6 +1063,7 @@ class Borehole:
             # get copies of the data and times
             # TODO: Reconsider way to handle getting only ground temperatures
             data = self.daily_ts[lim[0]:lim[1]].iloc[:, did].values
+            dates = list(self.daily_ts[lim[0]:lim[1]].index)
             ordinals = list(map(dt.datetime.toordinal, self.daily_ts[lim[0]:lim[1]].index))
 
             # TODO: Handle masked values
@@ -1086,7 +1087,9 @@ class Borehole:
                 #     data.mask = mask
                 #
                 # if any(data.mask == False):
-                lh = ax.plot_date(ordinals, data[:,c2id], '-', label="{0:.2f} m".format(depths[c2id]), picker=5, **kwargs)
+                #pdb.set_trace()
+                lh = ax.plot_date(dates, data[:,c2id], '-', label="{0:.2f} m".format(depths[c2id]), picker=5, **kwargs)
+                #lh = ax.plot_date(ordinals, data[:,c2id], '-', label="{0:.2f} m".format(depths[c2id]), picker=5, **kwargs)
                 lh[0].tag = 'dataseries'
 
         else:

@@ -1,0 +1,64 @@
+RefactoringTool: No changes to pypf\mapping\plotbrown1997.py
+RefactoringTool: Files that were modified:
+RefactoringTool: pypf\db\ClimateData.py
+RefactoringTool: pypf\db\DMIModelData.py
+RefactoringTool: pypf\db\boreholes.py
+RefactoringTool: pypf\db\boreholes_old_before_pandas.py
+RefactoringTool: pypf\db\io.py
+RefactoringTool: pypf\db\snow.py
+RefactoringTool: pypf\db\zoom_span.py
+RefactoringTool: pypf\mapping\__init__.py
+RefactoringTool: pypf\mapping\geomutils.py
+RefactoringTool: pypf\mapping\maps.py
+RefactoringTool: pypf\mapping\plot.py
+RefactoringTool: pypf\mapping\plotbrown1997.py
+RefactoringTool: Warnings/messages while refactoring:
+RefactoringTool: ### In file pypf\db\ClimateData.py ###
+RefactoringTool: Line 850: could not convert: raise "Month does not exist in monthly timeseries"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 664: could not convert: raise "No file name specified!"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 802: could not convert: raise "Problem with non-datetime times in ClimateData.patch_AT"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 804: could not convert: raise "Bad input to calcMAAT"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 893: could not convert: raise "Bad input to calcMAAT"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 966: could not convert: raise "Bad input to calc_P_parameters"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 1576: could not convert: raise "Nothing to parse!"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: ### In file pypf\db\DMIModelData.py ###
+RefactoringTool: Line 470: could not convert: raise "Bad input to calcMAAT"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 1060: could not convert: raise "Bad input to calc_P_parameters"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: ### In file pypf\db\boreholes_old_before_pandas.py ###
+RefactoringTool: Line 631: could not convert: raise "Data file depth info does not match existing logger info. Aborting!"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 607: could not convert: raise "Logger parameters missing from file."
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 638: could not convert: raise "Header info does not match current logger. Aborting!"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 571: could not convert: raise "Calibration information does not match number of data columns!"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 620: could not convert: raise "No header data in file, aborting!"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 1268: could not convert: raise "Thaw depth calculation based on full time series is not implemented!"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 1388: could not convert: raise "Thaw depth calculation based on full time series is not implemented!"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 1618: could not convert: raise "Full timeseries support in calc_ALT is not implemented yet!"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 1676: could not convert: raise "Full timeseries support in calc_ALT is not implemented yet!"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 1746: could not convert: raise "Full timeseries support in get_MAGT is not implemented yet!"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 469: could not convert: raise 'Type of datafile cannot be determined... add type information to header'
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 3520: could not convert: raise "Full timeseries support in get_MAGTs is not implemented yet!"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 3882: could not convert: raise "dates should be either ordinals, date or datetime objects"
+RefactoringTool: Python 3 does not support string exceptions
+RefactoringTool: Line 3903: could not convert: raise "dates should be either ordinals, date or datetime objects"
+RefactoringTool: Python 3 does not support string exceptions
