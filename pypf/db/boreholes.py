@@ -74,10 +74,10 @@ def find(condition):
 
 def get_indices(alike1, alike2, float_comp=True, atol=1e-8, rtol=1e-5):
     """Finds the indices of the values in alike2 as they occur in alike1.
-    If a value from alike2 does not occur in alike1, the index will be a np.NaN
+    If a value from alike2 does not occur in alike1, the index will be a np.nan
     value.
     """
-    idx = [np.NaN for a in alike2]
+    idx = [np.nan for a in alike2]
 
     if float_comp:
         for idv, val in enumerate(alike2):
@@ -638,8 +638,8 @@ class Borehole:
         degC_cols = (np.array(self.sensor_data_units) == 'C') & temp_sensors
         K_cols = (np.array(self.sensor_data_units) == 'K') & temp_sensors
 
-        self.rawdata[self.rawdata.iloc[:, degC_cols] < -273.15] = np.NaN
-        self.rawdata[self.rawdata.iloc[:, K_cols] < 0] = np.NaN
+        self.rawdata[self.rawdata.iloc[:, degC_cols] < -273.15] = np.nan
+        self.rawdata[self.rawdata.iloc[:, K_cols] < 0] = np.nan
 
         # TODO: Implement mask handling, currently mask is only read and stored
 
@@ -1415,12 +1415,12 @@ class Borehole:
         z0 = find_zero(maxT, maxT_d)
         
         if len(z0) == 0:
-            z0 = np.NaN
+            z0 = np.nan
 
         elif maxT[0] > 0.:
             z0 = z0[0]
         else:
-            z0 = np.NaN
+            z0 = np.nan
             #raise ValueError('Upper most temperature is negative, get_ALT cannot calculate thickness of active layer')
 
         # return z0, maxT, maxT_d
@@ -1640,7 +1640,7 @@ class Borehole:
             else:
                 ax.set_title(ax.get_title() + ' + ' + self.name)
 
-            ax.set_ylabel('Temperature [$^\circ$C]')
+            ax.set_ylabel(r'Temperature [$^\circ$C]')
             ax.set_xlabel('Time')
 
         fh.axcallbacks = zoom_span.AxesCallbacks(ax)
@@ -1715,7 +1715,7 @@ class Borehole:
         ax.set_ylim(ymax=min(ylim), ymin=max(ylim))        
         
         ax.get_xaxis().tick_top()
-        ax.set_xlabel('Temperature [$^\circ$C]', fontsize=fs)
+        ax.set_xlabel(r'Temperature [$^\circ$C]', fontsize=fs)
         ax.get_xaxis().set_label_position('top')
         ax.set_ylabel('Depth [m]', fontsize=fs)
 
@@ -1948,7 +1948,7 @@ class Borehole:
             ax.grid(True, **args['grid'])
 
         ax.get_xaxis().tick_top()
-        ax.set_xlabel('Temperature [$^\circ$C]', fontsize=fs)
+        ax.set_xlabel(r'Temperature [$^\circ$C]', fontsize=fs)
         ax.get_xaxis().set_label_position('top')
         ax.set_ylabel('Depth [m]', fontsize=fs)
 
@@ -2053,7 +2053,7 @@ class Borehole:
             
             # add new columns with NaN values
             for d in new_depths:
-                df[d] = np.NaN
+                df[d] = np.nan
             df = df.reindex(sorted(df.columns), axis=1)  # reindex to make sure columns are in ascending depth order
             
             # Then do the interpolation inplace on the dataframe
@@ -2082,7 +2082,7 @@ class Borehole:
 
             if cont_levels is not None:
                 ct = ax.contour(xx, yy, data.T, cont_levels, colors='k')
-                cl = ax.clabel(ct, cont_levels, inline=True, fmt='%1.1f $^\circ$C', fontsize=8, colors='k')
+                cl = ax.clabel(ct, cont_levels, inline=True, fmt=r'%1.1f $^\circ$C', fontsize=8, colors='k')
 
             if show_sensors:
                 xlim = ax.get_xlim()
@@ -2092,7 +2092,7 @@ class Borehole:
             ax.xaxis_date()
 
             cbax = plt.colorbar(cf, orientation='horizontal', ax=cax, shrink=1.0, aspect=30, fraction=0.05)
-            cbax.set_label('Temperature [$^\circ$C]')
+            cbax.set_label(r'Temperature [$^\circ$C]')
             fh.autofmt_xdate()
         else:
             raise NotImplementedError('Full timeseries support not implemented!')
@@ -2428,10 +2428,10 @@ def plot_trumpet(bhole, end_date=None, nyears=1, lim=None, xlim=None, ylim=None,
     tit = tit + '\nALT: {0:.2f} m'.format(z0)
 
     if Dzaa_exact:
-        tit = tit + '\nT$_{{zaa}}$: {0:.1f} $^{{\circ}} \mathrm{{C}}$ @ {1:.1f} m'.format(Tzaa, Dzaa)
+        tit = tit + '\nT$_{{zaa}}$: {0:.1f} $^{{\\circ}} \\mathrm{{C}}$ @ {1:.1f} m'.format(Tzaa, Dzaa)
     else:
-        tit = tit + '\nT: {0:.1f} $^{{\circ}} \mathrm{{C}}$ @ {1:.1f} m'.format(Tzaa, Dzaa)
-
+        tit = tit + '\nT: {0:.1f} $^{{\\circ}} \\mathrm{{C}}$ @ {1:.1f} m'.format(Tzaa, Dzaa)    
+    
     leg = plt.legend(loc='lower left', title=tit, fontsize=12)
     leg._legend_box.align = "left"
 

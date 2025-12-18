@@ -1,0 +1,21 @@
+# Core dependencies
+matplotlib>=3.5.0
+numpy>=1.21.0
+pandas>=2.0.0
+lxml>=4.9.0
+openpyxl>=3.0.0
+tables>=3.7.0
+pyproj>=3.3.0
+rich>=12.0.0
+python-dateutil>=2.8.0
+
+# Custom package - must be installed separately
+# pydatastorage
+# Installation: pip install /path/to/pydatastorage
+# Or if available via git: pip install git+https://github.com/tingeman/pydatastorage.git
+
+# Development dependencies (optional)
+# Uncomment to install with: pip install -r requirements.txt
+# ipython>=8.0.0
+# ipdb>=0.13.0
+# pytest>=7.0.0

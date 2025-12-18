@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pypf"
+version = "0.2.0"
+description = "Python Permafrost package"
+authors = [
+    {name = "Thomas Ingeman-Nielsen", email = "thin@dtu.dk"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+keywords = ["permafrost", "geothermal", "borehole"]
+classifiers = [
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Fortran",
+    "Development Status :: 3 - Alpha",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "License :: OSI Approved :: GNU General Public License (GPL)",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "matplotlib>=3.5.0",
+    "numpy>=1.21.0",
+    "pandas>=2.0.0",
+    "lxml>=4.9.0",
+    "openpyxl>=3.0.0",
+    "tables>=3.7.0",
+    "pyproj>=3.3.0",
+    "rich>=12.0.0",
+    "python-dateutil>=2.8.0",
+    # Note: pydatastorage is a custom package and must be installed separately
+    # See README.md for installation instructions
+]
+
+[project.optional-dependencies]
+dev = [
+    "ipython>=8.0.0",
+    "ipdb>=0.13.0",
+    "pytest>=7.0.0",
+]
+
+[project.urls]
+#Homepage = "http://???"
+Repository = "https://github.com/tingeman/pydatastorage"
+
+[tool.setuptools]
+packages = ["pypf"]
+
+[tool.setuptools.package-data]
+pypf = ["resources/brown1997/*"]
