@@ -22,7 +22,7 @@ import copy
 import datetime as dt
 import os
 import ipdb as pdb
-from collections import OrderedDict
+from collections import OrderedDict, Counter
 from rich import print
 
 import dateutil
@@ -148,6 +148,8 @@ def find_zero(xi, yi, exclude_zeros=True):
     # identified at the top of a 0C interval.
     #
     # There may be still some issues with [1, 0, 1] type situations, which may have to be handled.
+    #
+    # This function is used in simple calculation of thaw depth.
 
     if exclude_zeros:
         # This code will check for xi elements equal zero, and
@@ -172,6 +174,124 @@ def find_zero(xi, yi, exclude_zeros=True):
         ys.append(y0)
 
     return ys
+
+
+
+def calc_thaw_depth_at_node(data, depths, node):
+    """
+    Method to calculate thawd epth on a specific date below the specified node.
+    Thus, the temperature at the specified node should be above zero, and
+    the temperature at node+1 should be below zero.
+    The method will throw an error, if this is not the case.
+
+    It will calculate three different estimates of the thaw depth:
+    a) Extrapolation from two points just above the frost table
+    b) Extrapolation from two points below the frost table
+    c) Interpolation from one point above and one below the frost table
+    
+    Args:
+    data : array
+        Array of temperature values.
+    depths : array
+        Array of depth values.
+    node : int
+        Index of the node immediately above the frost table.
+
+    Returns:
+    thawd : array
+        Array of estimated thaw depths.
+    rel_d : float
+        Relative depth of the frost table.
+
+    """
+
+    #raise NotImplementedError('Not implemented!')
+
+    def x_at_y_eq_0(x_1, x_2, y_1, y_2):
+        """
+        Calculates the value of x at y=0, thus the crossing point of the
+        x-axis. According to the general equation:
+
+        x_0 = x_1 - y_1 / ((y_2-y_1)/(x_2-x_1))
+        """
+        if y_1 == y_2:
+            raise ValueError('Cannot interpoloate: Temperatures at the two points are identical')
+        return x_1 - y_1 / ((y_2 - y_1) / (x_2 - x_1))
+
+    # if fullts:
+    #     raise NotImplementedError("Thaw depth calculation based on full time series is not implemented!")
+
+    # if self.daily_ts == None:
+    #     self.calc_daily_avg()
+
+    # # Get the index of the day in question
+    # did = find(self.daily_ts.times == date)
+
+    # if not did:
+    #     raise ValueError("Date does not exist in data set") 
+
+    # # Select only ground temperatures
+    # GTid = find(np.array(self.depths) >= 0.)
+    # data = self.daily_ts.data[did, GTid].flatten()
+    # depths = np.take(self.depths, GTid)
+
+    # ids = np.argsort(depths)
+    # depths = depths[ids]
+    # data = data[ids]
+
+    # if node < 2 or node > len(depths)-3:
+    #     raise ValueError('node-argument must be larger than 2 and less than number of depths (excluding above ground depths) minus 2.')
+
+    if data[node] < 0. or data[node+1] > 0.:
+        raise ValueError('node argument should be depth index for node immediately above frost table.')
+
+    # # Ensure that no nan values are present at node-1, node, node+1 and node+2
+    # if np.any(np.isnan(data[node-1:node+2])) or np.any(np.isnan(depths[node-1:node+2])):
+    #     raise ValueError("Data or depths contain NaN values.")
+
+    # Prepare array to store thaw depths
+    # Will hold the three different estimations
+    thawd = np.ma.zeros(3)
+    thawd.mask = np.ma.getmaskarray(thawd)
+    thawd.mask = True
+
+    # General equation for calculating x_0 @ y=0:
+    #    x_0 = x_1 - y_1 / ((y_2-y_1)/(x_2-x_1))
+
+    # We do 3 estimations of the frost table based on:
+    # a) two points just above the frost table
+    # b) one point above and one below frost table
+    # c) two points below frost table.
+
+    if node >= 1:
+        # Calculate based on two points above frost table
+        thawd[0] = x_at_y_eq_0(
+                depths[node-1],
+                depths[node],
+                data[node-1],
+                data[node])
+        thawd.mask[0] = False
+
+    if node >= 0 and data[node] >= 0. and data[node+1] < 0.:
+        # Calculate based on one point above and below frost table
+        thawd[1] = x_at_y_eq_0(
+                depths[node],
+                depths[node+1],
+                data[node],
+                data[node+1])
+        thawd.mask[1] = False
+
+    if node+2 < len(data) and np.all(data[node+1:node+3] < 0.) :
+        # Calculate based on two points below frost table
+        thawd[2] = x_at_y_eq_0(
+                depths[node+1],
+                depths[node+2],
+                data[node+1],
+                data[node+2])
+        thawd.mask[2] = False
+
+    return thawd
+
 
 
 
@@ -352,7 +472,7 @@ class Borehole:
 
         # decode bytestrings read from hdf5
         def decode_strings(thisdf):
-            str_df = thisdf.select_dtypes([np.object])
+            str_df = thisdf.select_dtypes([object])
             try:
                 str_df = str_df.stack().str.decode('ascii').unstack()
             except:
@@ -567,30 +687,59 @@ class Borehole:
             
             #bh2 = copy.deepcopy(bh)  
             self.rawdata_mask.iloc[ids, self.rawdata_mask.columns.get_level_values(0).isin(SensorIDs)] = np.nan
+
             self.apply_mask()
             self.calc_daily_average()
 
-    def merge(self, other):
+    def merge(self, other, method='replace'):
         """Merges two boreholes, so that measurements from the two time series are merged and appear as one.
         No checking or corrections are performed.
         Only measurements from other that occur later than last measurement of self are considered.
         There is no keeping track of calibration status.
+
+        Method indicates how duplicate timestamps should be handled.
+        'keep' will keep own data
+        'replace' will replace duplicate timestamps with data from other
         """
-        outbh = copy.deepcopy(self)
-        # add to rawdata only the rows from other that are later than any row in self
-        outbh.rawdata = self.rawdata.append(other.rawdata[other.rawdata.index>self.rawdata.index[-1]])
-        outbh.rawdata_mask = self.rawdata_mask.append(other.rawdata_mask[other.rawdata_mask.index>self.rawdata_mask.index[-1]])
-        #outbh.rawdata_mask = self.rawdata_mask + other.rawdata_mask[other.rawdata_mask.index>self.rawdata_mask.index[-1]]
+        
+        if method == 'keep':
+            # The merging will keep data from self, and only fill with data from other
+            # outside the date interval covered by self (no gap filling)
+            outbh = copy.deepcopy(self)
+            idx = np.logical_or(other.rawdata.index<self.rawdata.index[0], other.rawdata.index>self.rawdata.index[-1])
+            idx_mask = np.logical_or(other.rawdata_mask.index<self.rawdata_mask.index[0], other.rawdata_mask.index>self.rawdata_mask.index[-1])
+            outbh.rawdata = pd.concat([self.rawdata, other.rawdata[idx]], axis='index', sort=True)
+            outbh.rawdata_mask = pd.concat([self.rawdata_mask, other.rawdata_mask[idx_mask]], axis='index', sort=True)
+        elif method == 'replace':
+            # The merging will replace data from self with data from other, where there is
+            # overlap.
+            outbh = copy.deepcopy(other)
+            idx = np.logical_or(self.rawdata.index<other.rawdata.index[0], self.rawdata.index>other.rawdata.index[-1])
+            idx_mask = np.logical_or(self.rawdata_mask.index<other.rawdata_mask.index[0], self.rawdata_mask.index>other.rawdata_mask.index[-1])
+            outbh.rawdata = pd.concat([self.rawdata[idx], other.rawdata], axis='index', sort=True)
+            outbh.rawdata_mask = pd.concat([self.rawdata_mask[idx_mask], other.rawdata_mask], axis='index', sort=True)
+        else:
+            raise ValueError('Unknown method of handling duplicates: {0}'.format(method))
+        
+        outbh.sort_columns_by_depth()
+        outbh.sensor_depths = np.array(outbh.rawdata.columns.get_level_values('CoordZ'))
+
         outbh.apply_mask()
-        outbh.calc_daily_average()
+        outbh.calc_daily_average_adaptive()
         return outbh
 
     def __add__(self, other):
         return self.merge(other)
 
     def sort_columns_by_depth(self):
-        self.daily_ts.sort_index(axis=1, level='CoordZ', sort_remaining=False, inplace=True)
+        if hasattr(self, 'rawdata') and self.rawdata is not None:
+            self.rawdata.sort_index(axis=1, level='CoordZ', sort_remaining=False, inplace=True)
+        if hasattr(self, 'rawdata_mask') and self.rawdata_mask is not None:
+            self.rawdata_mask.sort_index(axis=1, level='CoordZ', sort_remaining=False, inplace=True)
+        if hasattr(self, 'daily_ts') and self.daily_ts is not None:
+            self.daily_ts.sort_index(axis=1, level='CoordZ', sort_remaining=False, inplace=True)
         
+
     def get_header_info(self):
         """Converts the column headers (MultiIndex) to an OrderedDict
         with the level names as keys, and lists of the level values as 
@@ -652,7 +801,7 @@ class Borehole:
             fid.write('-'*100)
             fid.write('\n')
             #fid.write(output.getvalue())
-            self.daily_ts.to_csv(fid, mode='a', line_terminator='\n', float_format="%.3f", na_rep='---',
+            self.daily_ts.to_csv(fid, mode='a', lineterminator='\n', float_format="%.3f", na_rep='---',
                                  header=False)
 
         # output.close()
@@ -676,7 +825,17 @@ class Borehole:
                 return [self.daily_ts.index[0], self.daily_ts.index[-1]]
 
 
-    def calc_daily_average(self, mindata=1, threshold=0.9):
+    def calc_daily_average(self, mindata=1, threshold=0.9, method='adaptive'):
+        """Wrapper function, standard is now to use adaptive algorithm"""
+        if method.lower() == 'adaptive':
+            self.calc_daily_average_adaptive(mindata=1, threshold=0.9)
+        elif method.lower() == 'simple':
+            self.calc_daily_average_simple(mindata=1, threshold=0.9)
+        else:
+            raise ValueError('Averaging method not recognized ({0})'.format(method))
+
+
+    def calc_daily_average_simple(self, mindata=1, threshold=0.9):
         """Calculates daily averages of borehole data
 
         Input arguments:
@@ -744,9 +903,312 @@ class Borehole:
         else:
             # TODO: Implement fancy fuzzy frequency checking and reindexing
             self.daily_ts = daily_ts
+
+
+    def _infer_frequencies(self, plot=False):
+
+        def f(x,a,b,c): 
+            """
+            a: value before step
+            b: value after step
+            c: the x-value at which the step occurs
             
+                        |------------ b 
+                        | 
+            a ----------|
+                        c
+            """
+            return np.heaviside(x-c,0)*(b-a)+a # Heaviside fitting function
+    
+        def obj(c, xdat, yobs, a, b): 
+            """Objective function for fitting heaviside step"""
+            return np.sum(np.square(yobs-f(xdat, a, b, c)))
+
+        def calc_ssq(xdat, ydat, a, b):
+            # calculate sum-of-squares for step-up function
+            obj_f = lambda c: obj(c, xdat, ydat, a, b)
+            ssq = list(map(obj_f, xdat))
+            lsq_id = np.argmin(ssq)
+            return ssq, lsq_id
+
+        def apply_change_points(row, date=None, freq1=None, freq2=None, **kwargs):
+            """Function to assign nominal time step to entries close to a step change in timestep size.
+            Intended to be applied to a subset of rows from a dataframe, taken right before
+            and after the step change."""
+            cp_date = pd.to_datetime(date).tz_localize(row.name.tz)
+            if row.name <= cp_date:
+                return freq1
+            else:
+                return freq2
+
+        # calculate timesteps in hours
+        td = [d.total_seconds()/3600 for d in np.diff(self.rawdata.index)]
+        # we consider the timestep a look-ahead value, it is the time difference
+        # between the current timestamp and the one immediately after.
+        
+        # create dataframe with date information
+        annotated_df = pd.DataFrame(td, index=self.rawdata.index[0:-1])
+        annotated_df.columns = ['freq']
+        annotated_df['year'] = annotated_df.index.year
+        annotated_df['month'] = annotated_df.index.month
+        annotated_df['day'] = annotated_df.index.day
+        annotated_df['week'] = annotated_df.index.isocalendar().week
+                    
+        # keep only timesteps of less than/equal to 24h 
+        # anything larger will be data gaps
+        pruned_df = annotated_df[annotated_df['freq']<=24.]
+
+        # find weeks where major changes occur
+        freq_by_week_df = pruned_df.groupby(['year','week'])['freq'].mean().round()
+        tmp = np.nonzero(freq_by_week_df.diff().values)
+
+        detected_change_points = []
+        if len(tmp[0]) > 1:
+            change_ids = list(tmp[0][1:] )
+            
+            # Loop over identified changes                  
+            for idx in change_ids:
+                # actual week of change
+                week_of_year_index = (pruned_df['year']==freq_by_week_df.index[idx][0]) & (pruned_df['week']==freq_by_week_df.index[idx][1])
+                # first date is 3 days before
+                start_date = (pruned_df.iloc[np.nonzero(week_of_year_index.values)[0][0]].name - dt.timedelta(days=3)).date()
+                # last date is 3 days after
+                end_date = (pruned_df.iloc[np.nonzero(week_of_year_index.values)[0][-1]].name + dt.timedelta(days=3)).date()
+
+                # Select the appropriate dates in the range
+                subset_index = (pruned_df.index > start_date.isoformat()) & (pruned_df.index <= end_date.isoformat())
+                subset = pruned_df[subset_index].round()
+                        
+                # Count the occurences of different timesteps    
+                cnt = Counter(subset.groupby(['year','month','day'])['freq'].mean().round())
+
+                # get the two most common timestep durations
+                # sorted in ascending order
+                most_common = sorted([k for (k,c) in cnt.most_common(2)])
+
+                if len(most_common) < 2:
+                    # No relevant changes identified
+                    continue
+                
+                if any(np.array([cnt.get(most_common[idc]) for idc in np.arange(2)]) <= 2):
+                    # We should have at least 3 days with this timestep in the time series
+                    # We don't, so we treat them as outliers
+                    
+                    # pdb.set_trace()
+                    
+                    continue
+                    
+                xdat = np.arange(len(subset))
+                ydat = subset['freq']
+                
+                # calculate sum-of-squares for step-up function
+                ssq_a, lsq_a_id = calc_ssq(xdat, ydat, most_common[0], most_common[1])
+            
+                # calculate sum-of-squares for step-down function
+                ssq_b, lsq_b_id = calc_ssq(xdat, ydat, most_common[1], most_common[0])
+                
+                # calculate sum-of-squares for no step level a 
+                ssq_a2, lsq_a2_id = calc_ssq(xdat, ydat, most_common[0], most_common[0])
+
+                # calculate sum-of-squares for no step level b
+                ssq_b2, lsq_b2_id = calc_ssq(xdat, ydat, most_common[1], most_common[1])
+                
+                if min([ssq_a2[lsq_a2_id],ssq_b2[lsq_b2_id]]) < min([ssq_a[lsq_a_id],ssq_b[lsq_b_id]]):
+                    # straight line is better fit than step function
+                    continue
+                    
+                # Select best fitting parameters of step-function
+                tsdat = subset.index      
+                if ssq_a[lsq_a_id] <= ssq_b[lsq_b_id]:
+                    a = most_common[0]
+                    b = most_common[1]
+                    lsq_id = lsq_a_id
+                else:
+                    a = most_common[1]
+                    b = most_common[0]
+                    lsq_id = lsq_b_id
+                
+                # Calculate the inferred nominal timestep intervals
+                ydat = f(xdat, a, b, xdat[lsq_id])
+                
+                # Select best fitting parameters of straight line
+                if ssq_a2[lsq_a2_id] <= ssq_b2[lsq_b2_id]:
+                    af = most_common[0]
+                    bf = most_common[0]
+                    ydat_flat = f(xdat, af, bf, xdat[lsq_a2_id])
+                else:
+                    a = most_common[1]
+                    b = most_common[1]
+                    ydat_flat = f(xdat, af, bf, xdat[lsq_b_id])        
+                        
+                # Store result of fitting
+                change_point = {}
+                change_point['freq1'] = a
+                change_point['freq2'] = b
+                change_point['date'] = (subset.iloc[lsq_id].name.date() + dt.timedelta(days=1)).isoformat()
+                change_point['year'] = (subset.iloc[lsq_id].name.date() + dt.timedelta(days=1)).year
+                change_point['month'] = (subset.iloc[lsq_id].name.date() + dt.timedelta(days=1)).month
+                change_point['week'] = (subset.iloc[lsq_id].name.date() + dt.timedelta(days=1)).isocalendar().week
+                
+                detected_change_points.append(change_point)
+                
+                if plot:
+                    # plot resulting fit
+                    plt.figure(figsize=(12,2))
+                    plt.plot(subset.index, subset['freq'], '.r')
+                    plt.plot(subset.index, ydat, '-b')
+                    plt.plot(subset.index, ydat_flat, ':b')
+                    plt.show(block=False)
+        
+        freq_by_week_df = freq_by_week_df.reset_index()
+        joined_df = pd.merge(annotated_df, freq_by_week_df, on=['year', 'week'], how='left')
+        annotated_df['nominal_freq'] = joined_df['freq_y'].values
+
+        # Ensure week 52 extending into new year has correct value in the new year
+        years = annotated_df[(annotated_df['week'] == 52) & (annotated_df['month'] == 1)]['year'].unique()
+        for yr in years:
+            idx = (annotated_df['year'] == yr) & (annotated_df['week'] == 52) & (annotated_df['month'] == 1)
+            annotated_df[idx] = freq_by_week_df[(freq_by_week_df['year'] == yr-1) & (freq_by_week_df['week'] == 52)]['freq'].values[0]
+
+        if len(detected_change_points) > 0:
+            # If change points were detected
+            # adjust frequencies in vicinitiy of change points
+            dcp_df = pd.DataFrame(detected_change_points)
+            for cpid, cp in dcp_df.iterrows():
+                # find week of year where change is occuring
+                idx = (annotated_df['year'] == cp['year']) & (annotated_df['week'] == cp['week'])
+                # apply freq1 before change point, and freq2 after
+                annotated_df.loc[idx,'nominal_freq'] = annotated_df.loc[idx].apply(apply_change_points, axis=1, args=(cp['date'], cp['freq1'], cp['freq2']))
+                
+                # handle week 52 spilling over into new year
+                if (cp['week'] == 52) & (cp['month'] == 12):
+                    # ... if change point is in old year
+                    idx = (annotated_df['year'] == cp['year']+1) & (annotated_df['week'] == 52) & (annotated_df['month'] == 1)
+                elif (cp['week'] == 52) & (cp['month'] == 1):
+                    # ... if change point is in new year
+                    idx = (annotated_df['year'] == cp['year']-1) & (annotated_df['week'] == 52) & (annotated_df['month'] == 12)
+                    
+                if any(idx):
+                    annotated_df.loc[idx,'nominal_freq'] = annotated_df.loc[idx].apply(apply_change_points, axis=1, args=(cp['date'], cp['freq1'], cp['freq2']))
+        
+        if plot:
+            # plot resulting fit
+            plt.figure(figsize=(12,2))
+            plt.plot(annotated_df.index, annotated_df['nominal_freq'], '-b')
+            plt.plot(annotated_df.index, annotated_df['freq'], ':r')
+            plt.gca().set_ylim([0,10])
+            plt.show(block=False)
+        
+        return detected_change_points, annotated_df
+
+
+    def calc_daily_average_adaptive(self, mindata=1, threshold=0.9):
+        """Calculates daily averages of borehole data using an adaptive algorithm
+        to estimate the expected daily frequency of measurements.
+
+        Input arguments:
+        mindata:      The minimum number of data per day, if less, date will be masked
+        threshold:    The relative number of measurements that must be available per day.
+                      Default 0.9 means that minimum 9 of 10 measurements must be available,
+                      and not masked. If measurement interval is every 3 h, no measurements
+                      must be missing. If interval is every 1 h, 2 measurements may be missing
+
+        tz_unaware:   Flag to allow time zone unaware averaging
+                      With physical data it makes most sense to calculate the
+                      daily average based on local time
+
+        Adds a daily_ts DataFrame to the borehole instance
+
+        The expected data frequency is calculated with an adaptive algorithm, allowing step 
+        changes in data frequency to occur in the time series.
+        Any date with more than 90% (default threshold) of the expected data (according to the
+        adaptive frequency calculation) available will have an average calculated.
+
+        The adaptive frequency determination assigns the faster measurement frequency to days
+        where the frequency changes, which will typically result in that day being masked due to 
+        missing data. This is the preferred behaviour, to avoid biased averages.
+        
+        Consider implementing also a masking algorithm for whenever there are more measurements
+        available than the maximum possible with the estimated frequency.
+        """
+
+        # TODO: Handle masking when frequency changes consistently (so not just when a data point is missing...)
+
+        if self.rawdata is None:
+            return
+
+        # TODO: Handle masks in calculation of daily averages
+        grouped = self.rawdata.groupby(self.rawdata.index.date)
+        daily_ts = grouped.mean()
+        daily_count = grouped.count()
+
+        dcp, nominal_freq_df = self._infer_frequencies()
+        #ndf_df = nominal_freq_df.groupby(nominal_freq_df.index).agg({'nominal_freq': 'min'})
+        ndf_df = nominal_freq_df.groupby(nominal_freq_df.index)['nominal_freq'].min()
+
+        #nominal_count = 24/ndf_df.groupby(ndf_df.index.date).agg({'nominal_freq': 'min'})
+        nominal_count = 24/ndf_df.groupby(ndf_df.index.date).min()
+
+        # For data sources with a data interval of more than 1 day,
+        # the aggregation to daily values result in an index consisting
+        # of datetime.date objects.
+        # To be sure we always have a pd.DatetimeIndex, we specifically convert.
+        daily_ts.index = pd.DatetimeIndex(daily_ts.index)
+
+        # Old code, no longer valid:
+        # daily_ts = daily_ts[(daily_count >= nominal_count.values * threshold) & (daily_count >= mindata)]
+
+        mask = ((daily_count >= nominal_count.values[:, None] * threshold) & (daily_count >= mindata)).any(axis=1)
+        daily_ts = daily_ts[mask]
+
+        start = self.rawdata.index[0]
+        try:
+            start = start.date()
+        except:
+            pass
+
+        end = self.rawdata.index[-1]
+        try:
+            end = end.date()
+        except:
+            pass
+
+        # if the frequency is daily or higher, fill missing days...
+
+        td = ((daily_ts.index[-1] - daily_ts.index[0]) / len(daily_ts))
+        if td.days <= 1:
+            # fill any missing dates with NaN values (which is equivalent to "don't gap-fill": method=None)
+            self.daily_ts = daily_ts.reindex(pd.date_range(start, end), method=None)
+        else:
+            # TODO: Implement fancy fuzzy frequency checking and reindexing
+            self.daily_ts = daily_ts
+
 
     def get_date(self, date, fullts=False):
+        """
+        Retrieve ground temperature data for a specific date.
+
+        Parameters
+        ----------
+        date : datetime.date, datetime.datetime, or str
+            The date for which to extract the temperature profile. Must match an index in self.daily_ts.
+        fullts : bool, optional (default: False)
+            If True, attempts to extract from the full time series (not implemented).
+            If False, extracts from the daily averaged time series.
+
+        Returns
+        -------
+        pandas.DataFrame
+            DataFrame with sensor metadata as columns and a 'Value' column containing the temperature values for the specified date.
+            The DataFrame is indexed by the MultiIndex columns of self.daily_ts (e.g., SensorID, CoordZ, etc.).
+
+        Raises
+        ------
+        ValueError
+            If the requested date is not present in the dataset.
+        NotImplementedError
+            If fullts=True (not implemented).
+        """
         if not fullts:
             gid = find(self.daily_ts.columns.get_level_values('CoordZ') >= 0)
             #depths = np.take(self.daily_ts.columns.get_level_values('CoordZ'), gid).values
@@ -1062,9 +1524,11 @@ class Borehole:
 
             # get copies of the data and times
             # TODO: Reconsider way to handle getting only ground temperatures
-            data = self.daily_ts[lim[0]:lim[1]].iloc[:, did].values
-            dates = list(self.daily_ts[lim[0]:lim[1]].index)
-            ordinals = list(map(dt.datetime.toordinal, self.daily_ts[lim[0]:lim[1]].index))
+            start = lim[0].date() if hasattr(lim[0], "date") else lim[0]
+            end = lim[1].date() if hasattr(lim[1], "date") else lim[1]
+            data = self.daily_ts[start:end].iloc[:, did].values
+            dates = list(self.daily_ts[start:end].index)
+            ordinals = list(map(dt.datetime.toordinal, self.daily_ts[start:end].index))
 
             # TODO: Handle masked values
             #     if ignore_mask:
@@ -1651,6 +2115,213 @@ class Borehole:
         return plt.gca()
 
 
+    # def calc_ALT(self, lim=None, fullts=False, silent=False):
+    #     """
+    #     Under CONSTRUCTION....
+
+    #     [Yr maxd maxddayID] = SnuwALT(dateinput,data,depths)
+
+    #     dateinput:   serial number date as produced by datenum
+    #     depths:      depths included in data (length(depths) = size(data,2))
+    #     data:        matrix with depths as columns, days as rows
+    #     maxddayID:   Index into dateinput that gives maximum thawdepth
+    #     """
+    #     pass
+
+    def calc_ALT_estimates(self, end_date=None, nyears=1, lim=None, depths=None, fullts=False, silent=False):
+        """
+        Calculate Active Layer Thickness (ALT) estimates based on three different temperature profiles:
+        m: Temperature envelope method (based on maximum ground temperatures at every depth)
+        p: Profile on the day of maximum temperature at the node above the frost table
+        n: Profile on the day of maximum temperature at the node below the frost table
+
+        For each temperature profile, thaw depth is estimated in three different ways:
+        ++: Linear extrapolation from the two nodes above the frost table
+        +-: Linear interpolation between the two nodes above and below the frost table
+        --: Linear extrapolation from the two nodes below the frost table
+
+        Args:
+        end_date (dt.date, optional): End date for the calculation period (typically YYYY-07-31).
+        nyears (int, optional): Number of years to include in the calculation (default 1).
+        lim (tuple, optional): Custom time limits for the calculation.
+        depths (list, optional): Depths to include in the calculation (default all).
+        fullts (bool, optional): Whether to use full timeseries data (not implemented).
+        silent (bool, optional): Whether to suppress output messages.
+
+        Returns:
+        dict: A dictionary containing the estimated thaw depths for each profile and method.
+        """
+
+        if fullts:
+            raise NotImplementedError("Full timeseries support in calc_ALT is not implemented yet!")
+
+        if end_date is None:
+            end_date = self.rawdata.index[-1].date()
+
+        if lim is None:
+            lim = nyears2lim(end_date, 1)
+        
+        lim = fix_lim(lim)
+
+        if (lim[0].date() > self.daily_ts.index[-1].date()) or (lim[1].date() < self.daily_ts.index[0].date()):
+            raise IndexError('Requested date range is outside timeseries.')
+
+        # prepare to filter on depths
+        self.sort_columns_by_depth()
+
+        if self.daily_ts is not None:
+            self.calc_daily_average_adaptive()
+
+        # Apply time limits and depth limits (ground temperatures only)
+        ts = self.daily_ts.loc[lim[0].date():lim[1].date(), self.daily_ts.columns.get_level_values('CoordZ') >= 0]
+
+        if (depths is None) or (type(depths) == str and depths.lower() == 'all'):
+            depths = ts.columns.get_level_values('CoordZ')
+            if hasattr(depths, 'values'):
+                depths = depths.values
+
+        if not hasattr(depths, '__iter__'):
+            depths = [depths]  
+
+        max_depth_id = None   # index of deepest thawed node for each year
+        maxday_id_p = 0       # index to the date with max temperature at the node above ALT for each year
+        maxday_id_n = -1      # index to the date with max temperature at the node below ALT for each year
+
+        thaw_depth_p = np.ma.zeros((1, 3))
+        thaw_depth_n = np.ma.zeros((1, 3))
+        thaw_depth_m = np.ma.zeros((1, 3))
+        ALT_date = np.ma.ones(2, dtype=dt.date)
+
+        # Loop over depth levels, starting from top
+        # did will be depth index
+        # data will hold temperature timeseries for that depth 
+        for did, data in enumerate(ts.T.values):
+            # if all data are NaN, continue
+            if np.all(np.isnan(data)):
+                # If all data are masked, continue to next iteration.
+                continue
+
+            # Find days with positive thaw at present depth (in this specific year)
+            tid = find(data >= 0)      # array of indices to positive temperatures
+            if len(tid) != 0:
+                # If exist, set max thaw depth to this depth level
+                max_depth_id = did
+                # set maxdday_id_p to the index into data (for a certain year) for
+                # which the temperature is the highest, assuming this is the day
+                # with deepest active layer. If more days with same temp, take
+                # last day.
+                mid = find(data == np.nanmax(data))
+                if len(mid) != 0:
+                    maxday_id_p = mid.max()
+            elif False:
+                # Here we should handle the situation when data is missing
+                # in the thaw period from one depth.
+                # Presently that will be considered as no thaw.
+                # Should allow to look at deeper depth.
+                pass
+            else:
+                # Otherwise we have passed 0C isotherm, so break loop
+
+                # set maxday_id_n to the index into data (for a certain year) for
+                # which the temperature is the highest, and the node above is at
+                # positive temperatures, assuming this is the day with deepest active
+                # layer. If more days with same temp, take last day.
+
+                if not did == 0:
+                    # If this is not the upper most node, find all days
+                    # with positive temperatures in depth above the current.
+                    data_above = ts.T.iloc[did-1]
+                    idxp = find(data_above >= 0)  # index into data_above for positive temperatures
+
+                    # Now check these days for the highest temperature at the
+                    # present node-depth.
+                    data_filtered = data[idxp]
+                    idx = find(data_filtered == np.nanmax(data_filtered))
+                    # idx is index into days with positive temperature at depth above...
+                    # make idx index into days of the present year.
+                    idx = idxp[idx]
+                    maxday_id_n = idx.max()
+                break
+
+        # Still only looking at one year, if we have thaw, do interpolation
+        if max_depth_id != 0:
+            # interpolate to find 0 degr.
+
+            if max_depth_id == len(depths) - 1:
+                print("Max depth beyond grid")
+                max_depth_id = depths[-1]
+            elif max_depth_id >= len(find(depths >= 0)):
+                print("Max depth above second grid point")
+                max_depth_id = -9999.
+            else:
+                # Get the temperature profile on maxday_id_p and maxday_id_n
+                thaw_depth_n = calc_thaw_depth_at_node(ts.iloc[maxday_id_n].values, depths, max_depth_id)
+                thaw_depth_p = calc_thaw_depth_at_node(ts.iloc[maxday_id_p].values, depths, max_depth_id)
+
+                ALT_date[0] = ts.index[maxday_id_p].date()
+                ALT_date[1] = ts.index[maxday_id_n].date()
+
+        # get max values within time limits
+        maxGT = self.get_MaxGT(lim=lim)
+        maxGT = maxGT[maxGT.notna()]
+
+        # convert depths to column indices
+        did = get_indices(maxGT.index.get_level_values('CoordZ'), depths)
+        did = [i for i in did if not np.isnan(i)]  # remove nan values
+        
+        maxT = maxGT.iloc[did].values
+        maxT_d = maxGT.iloc[did].index.get_level_values('CoordZ').values
+
+        # find the deepest node (from the top) that has positive temperatures
+        for node in range(len(maxT)):
+            if maxT[node] >= 0:
+                max_depth_id = node
+            else:
+                break
+
+        thaw_depth_m = calc_thaw_depth_at_node(maxT, maxT_d, max_depth_id)
+
+
+        # maxd will hold the largest estimate of the three sets of estimates
+        # (thaw_depth_m, thaw_depth_n, thaw_depth_p)
+        maxdepth = np.max([thaw_depth_m.max(), thaw_depth_n.max(), thaw_depth_p.max()])
+
+        if not silent:
+            print(" max     m++     m+-     m--     p++     p+-     p--    date(p)       n++     n+-     n--    date(n)")
+            print("%5.2f   %5.2f   %5.2f   %5.2f   %5.2f   %5.2f   %5.2f   %10s   %5.2f   %5.2f   %5.2f   %10s" % (
+                maxdepth,
+                thaw_depth_m[0], thaw_depth_m[1], thaw_depth_m[2],
+                thaw_depth_p[0], thaw_depth_p[1], thaw_depth_p[2], ALT_date[0],
+                thaw_depth_n[0], thaw_depth_n[1], thaw_depth_n[2], ALT_date[1]))
+
+        return {'max_depth': maxdepth, 
+                'm++': thaw_depth_m[0],
+                'm+-': thaw_depth_m[1],
+                'm--': thaw_depth_m[2],
+                'p++': thaw_depth_p[0],
+                'p+-': thaw_depth_p[1],
+                'p--': thaw_depth_p[2],
+                'date(p)': ALT_date[0],
+                'n++': thaw_depth_n[0],
+                'n+-': thaw_depth_n[1],
+                'n--': thaw_depth_n[2],
+                'date(n)': ALT_date[1]}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def split_year_date_lists(start='1960-08-01', end=dt.date.today(), month=8, day=1):
     """Calculates lists of start and end dates of year slices, specified by 'start' and 'end' arguments,
     and splitting on the date specified by the 'month' and 'day' arguments.
@@ -1898,3 +2569,52 @@ def plot_date(bhole, date, xlim=None, ylim=None, **kwargs):
 #                      cmap=cmap, sensor_depths=sensor_depths, cax=cax,
 #                      cont_levels=cont_levels)
 #    return ax
+
+
+
+def calc_all_ALT_estimates(bhole, end_date=None, nyears=1, lim=None):
+    # Calculate all active layer thickness (ALT) estimates for a borehole
+    alt_estimates = []
+    bh_lim = bhole.get_limits()
+    y1 = bh_lim[0].year
+    y2 = bh_lim[1].year
+
+    if lim is not None:
+        lim = fix_lim(lim)
+
+    for yr in range(y1, y2 + 1):
+        # replace the year of lim[0] and lim[1]
+        this_lim = lim
+        if lim is not None:
+            this_lim = [lim[0].replace(year=yr), 
+                        lim[1].replace(year=yr+lim[1].year-lim[0].year)]
+        elif end_date is None:
+            raise ValueError("Either 'lim' or 'end_date' must be provided.")
+
+        try:
+            result = bhole.calc_ALT_estimates(end_date=end_date,
+                                              nyears=nyears,
+                                              lim=this_lim,
+                                              fullts=False,
+                                              silent=True)
+        except Exception as e:
+            print(f"Error calculating ALT for year {yr}: {e}")
+            result = {'max_depth': np.nan, 
+                      'm++': np.nan,
+                      'm+-': np.nan,
+                      'm--': np.nan,
+                      'p++': np.nan,
+                      'p+-': np.nan,
+                      'p--': np.nan,
+                      'date(p)': pd.NaT,
+                      'n++': np.nan,
+                      'n+-': np.nan,
+                      'n--': np.nan,
+                      'date(n)': pd.NaT}
+
+        alt_estimates.append(result)
+    
+    return alt_estimates
+
+
+# calc_ALT_estimates(end_date=None, nyears=1, lim=None, depths=None, fullts=False, silent=False):

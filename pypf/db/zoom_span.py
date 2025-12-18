@@ -13,10 +13,10 @@ import pdb
 
 class dataSpanSelector(SpanSelector):
     def __init__(self, ax, onselect, direction,  minspan=None, useblit=False,
-                 rectprops=None, onmove_callback=None, defaultspan=None):
+                 props=None, onmove_callback=None, defaultspan=None):
 
         SpanSelector.__init__(self, ax, onselect, direction, minspan=minspan, useblit=useblit,
-                 rectprops=rectprops, onmove_callback=onmove_callback)
+                 props=props, onmove_callback=onmove_callback)
 
 
         self.defaultspan = defaultspan
@@ -110,15 +110,15 @@ class AxesCallbacks:
         self.current_state = 0
 
         self.xspans = [zoomSpanSelector(self.ax, self.onXselect_zoom, 'horizontal', useblit=True,
-                        rectprops=dict(alpha=0.5, facecolor='red'))]
+                        props=dict(alpha=0.5, facecolor='red'))]
 
         self.yspans = [zoomSpanSelector(self.ax, self.onYselect_zoom, 'vertical', useblit=True,
-                        rectprops=dict(alpha=0.5, facecolor='red'))]
+                        props=dict(alpha=0.5, facecolor='red'))]
 
         for s in self.yspans:
-            s.visible = s.visible != True
+            s.set_visible(not s.get_visible())
         for s in self.xspans:
-            s.visible = s.visible != True
+            s.set_visible(not s.get_visible())
 
         self.toggletxt = self.figure.text(0.8,0.02,'Toggle state = {0}'.format(self.toggle_key_dict[0][3]), ha='right')
 
@@ -231,19 +231,19 @@ class AxesCallbacks:
 
     def activateXspan(self):
         for s in self.xspans:
-            s.visible = True
+            s.set_visible(True)
 
     def deactivateXspan(self):
         for s in self.xspans:
-            s.visible = False
+            s.set_visible(False)
 
     def activateYspan(self):
         for s in self.yspans:
-            s.visible = True
+            s.set_visible(True)
 
     def deactivateYspan(self):
         for s in self.yspans:
-            s.visible = False
+            s.set_visible(False)
 
     def spanOff(self):
         pass
@@ -286,11 +286,10 @@ class AxesCallbacks:
 
         elif event.key == 'g':
             print("Keypress: ", event.key, "  toggle grid on all axes")
-            if self.ax.xaxis._gridOnMajor:
-                gridState = True
-            else:
-                gridState = False
-            self.ax.grid(not gridState)
+            # Check if any major grid line is visible
+            gridlines = self.ax.get_xgridlines() + self.ax.get_ygridlines()
+            gridState = any(line.get_visible() for line in gridlines)
+            self.ax.grid(not gridState, which='major')
 
         elif event.key == '?':
             print("Keypress: ", event.key, "  list key bindings")
